@@ -1,0 +1,9 @@
+[package]
+name = "rinecs2"
+version = "0.1.0"
+authors = ["arturo castro <arturo@openframeworks.cc>"]
+
+[features]
+unstable=[]
+
+[dependencies]
