@@ -4,7 +4,7 @@
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::cell::{Ref, RefMut, RefCell};
+use std::cell::{Ref, RefMut, RefCell, UnsafeCell};
 use std::marker;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -20,6 +20,8 @@ pub struct World{
     entities: Vec<Entity>,
     next_component_mask: AtomicUsize,
     components_mask_index: HashMap<TypeId, usize>,
+
+    entities_index_per_mask: UnsafeCell<HashMap<usize, Vec<usize>>>,
 }
 
 impl World{
@@ -30,6 +32,7 @@ impl World{
             next_component_mask: AtomicUsize::new(1),
             entities: Vec::new(),
             components_mask_index: HashMap::new(),
+            entities_index_per_mask: UnsafeCell::new(HashMap::new()),
         }
     }
 
@@ -44,6 +47,7 @@ impl World{
     }
 
     pub fn create_entity(&mut self) -> EntityBuilder{
+        unsafe{(*self.entities_index_per_mask.get()).clear();}
         EntityBuilder::new(self)
     }
 
@@ -93,6 +97,21 @@ impl World{
 
     pub(crate) fn components_mask<C: ::Component>(&self) -> usize{
         self.components_mask_index[&TypeId::of::<C>()]
+    }
+
+    pub(crate) fn entities_for_mask(&self, mask: usize) -> &[usize]{
+        unsafe{
+            if !(*self.entities_index_per_mask.get()).contains_key(&mask){
+                let entities = self.entities.iter().filter_map(|e|
+                    if e.components_mask & mask == mask{
+                        Some(e.guid())
+                    }else{
+                        None
+                    }).collect();
+                (*self.entities_index_per_mask.get()).insert(mask, entities);
+            }
+            &(*self.entities_index_per_mask.get())[&mask]
+        }
     }
 }
 
@@ -378,8 +397,9 @@ impl<'a, T: 'a + Component> UnorderedData<'a> for Write<'a,T>
 }
 
 pub struct CombinedUnorderedIter<'a,T1, S1:'a,T2, S2: 'a>{
-    mask: usize,
-    entities: &'a [Entity],
+    //mask: usize,
+    //entities: &'a [Entity],
+    ids: &'a [usize],
     storage1: S1,
     _marker1: marker::PhantomData<T1>,
     storage2: S2,
@@ -390,14 +410,21 @@ pub struct CombinedUnorderedIter<'a,T1, S1:'a,T2, S2: 'a>{
 impl<'a,T1,S1: StorageRef<'a,T1> + 'a,T2,S2: StorageRef<'a,T2> + 'a> Iterator for CombinedUnorderedIter<'a,T1,S1,T2,S2>{
     type Item = (T1,T2);
     fn next(&mut self) -> Option<Self::Item>{
-        if self.next == self.entities.len(){
+        // if self.next == self.entities.len(){
+        //     None
+        // }else{
+        //     let next = self.next;
+        //     self.next += 1;
+        //     self.entities[next..].iter()
+        //         .find(|e| e.components_mask & self.mask == self.mask)
+        //         .map(|e| (self.storage1.get(e.guid()), self.storage2.get(e.guid())))
+        // }
+        if self.next == self.ids.len(){
             None
         }else{
-            let next = self.next;
+            let guid = self.ids[self.next];
             self.next += 1;
-            self.entities[next..].iter()
-                .find(|e| e.components_mask & self.mask == self.mask)
-                .map(|e| (self.storage1.get(e.guid()), self.storage2.get(e.guid())))
+            Some((self.storage1.get(guid), self.storage2.get(guid)))
         }
     }
 }
@@ -429,8 +456,9 @@ impl<'a, U1: UnorderedData<'a>, U2: UnorderedData<'a>> UnorderedData<'a> for (U1
 
     fn into_iter(world: &'a ::World) -> Self::Iter {
         CombinedUnorderedIter{
-            mask: Self::components_mask(world),
-            entities: &world.entities,
+            // mask: Self::components_mask(world),
+            // entities: &world.entities,
+            ids: world.entities_for_mask(Self::components_mask(world)),
             storage1: U1::storage(world),
             _marker1: marker::PhantomData,
             storage2: U2::storage(world),
