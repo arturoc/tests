@@ -4,7 +4,7 @@
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::cell::{Ref, RefMut, RefCell, UnsafeCell};
+use std::cell::{Ref, RefMut, RefCell};
 use std::marker;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,7 +21,7 @@ pub struct World{
     next_component_mask: AtomicUsize,
     components_mask_index: HashMap<TypeId, usize>,
 
-    entities_index_per_mask: UnsafeCell<HashMap<usize, Vec<usize>>>,
+    entities_index_per_mask: RefCell<HashMap<usize, Vec<usize>>>,
 }
 
 impl World{
@@ -32,7 +32,7 @@ impl World{
             next_component_mask: AtomicUsize::new(1),
             entities: Vec::new(),
             components_mask_index: HashMap::new(),
-            entities_index_per_mask: UnsafeCell::new(HashMap::new()),
+            entities_index_per_mask: RefCell::new(HashMap::new()),
         }
     }
 
@@ -47,7 +47,7 @@ impl World{
     }
 
     pub fn create_entity(&mut self) -> EntityBuilder{
-        unsafe{(*self.entities_index_per_mask.get()).clear();}
+        self.entities_index_per_mask.borrow_mut().clear();
         EntityBuilder::new(self)
     }
 
@@ -99,19 +99,17 @@ impl World{
         self.components_mask_index[&TypeId::of::<C>()]
     }
 
-    pub(crate) fn entities_for_mask(&self, mask: usize) -> &[usize]{
-        unsafe{
-            if !(*self.entities_index_per_mask.get()).contains_key(&mask){
-                let entities = self.entities.iter().filter_map(|e|
-                    if e.components_mask & mask == mask{
-                        Some(e.guid())
-                    }else{
-                        None
-                    }).collect();
-                (*self.entities_index_per_mask.get()).insert(mask, entities);
-            }
-            &(*self.entities_index_per_mask.get())[&mask]
+    pub(crate) fn entities_for_mask(&self, mask: usize) -> Ref<[usize]>{
+        if !self.entities_index_per_mask.borrow().contains_key(&mask){
+            let entities = self.entities.iter().filter_map(|e|
+                if e.components_mask & mask == mask{
+                    Some(e.guid())
+                }else{
+                    None
+                }).collect();
+            self.entities_index_per_mask.borrow_mut().insert(mask, entities);
         }
+        Ref::map(self.entities_index_per_mask.borrow(), |index| index[&mask].as_slice())
     }
 }
 
@@ -399,7 +397,7 @@ impl<'a, T: 'a + Component> UnorderedData<'a> for Write<'a,T>
 pub struct CombinedUnorderedIter<'a,T1, S1:'a,T2, S2: 'a>{
     //mask: usize,
     //entities: &'a [Entity],
-    ids: &'a [usize],
+    ids: Ref<'a, [usize]>,
     storage1: S1,
     _marker1: marker::PhantomData<T1>,
     storage2: S2,
