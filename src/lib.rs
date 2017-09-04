@@ -2,6 +2,9 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 #![feature(conservative_impl_trait)]
 
+extern crate rayon;
+// use rayon::prelude::*;
+
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::cell::{Ref, RefMut, RefCell};
@@ -23,6 +26,8 @@ pub struct World{
 
     entities_index_per_mask: RefCell<HashMap<usize, Vec<usize>>>,
 }
+
+unsafe impl Send for World{}
 
 impl World{
     pub fn new() -> World{
@@ -58,19 +63,13 @@ impl World{
     pub(crate) fn iter<C: Component>(&self) -> <Ref<<C as Component>::Storage> as IntoIter>::Iter
         where for<'a> Ref<'a, <C as Component>::Storage>: IntoIter
     {
-        let type_id = TypeId::of::<C>();
-        let storage = &self.storages[&type_id];
-        let storage: &RefCell<<C as Component>::Storage> = storage.downcast_ref().unwrap();
-        storage.borrow().iter()
+        self.storage::<C>().unwrap().iter()
     }
 
     pub(crate) fn iter_mut<C: Component>(&self) -> <RefMut<<C as Component>::Storage> as IntoIterMut>::IterMut
         where for<'a> RefMut<'a, <C as Component>::Storage>: IntoIterMut
     {
-        let type_id = TypeId::of::<C>();
-        let storage = &self.storages[&type_id];
-        let storage: &RefCell<<C as Component>::Storage> = storage.downcast_ref().unwrap();
-        storage.borrow_mut().iter_mut()
+        self.storage_mut::<C>().unwrap().iter_mut()
     }
 
     pub(crate) fn next_guid(&mut self) -> usize{
@@ -481,7 +480,7 @@ mod tests {
         struct Pos{
             x: f32,
             y: f32,
-        };
+        }
 
         impl ::Component for Pos{
             type Storage = ::DenseVec<Pos>;
@@ -506,4 +505,119 @@ mod tests {
         assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
         assert_eq!(iter.next(), None);
     }
+
+    #[test]
+    fn insert_read() {
+        #[derive(Debug,PartialEq,Copy,Clone)]
+        struct Pos{
+            x: f32,
+            y: f32,
+        }
+
+        impl ::Component for Pos{
+            type Storage = ::DenseVec<Pos>;
+        }
+
+        let mut world = ::World::new();
+        world.register::<Pos>();
+        world.create_entity()
+            .add(Pos{x: 1., y: 1.})
+            .build();
+        world.create_entity()
+            .add(Pos{x: 2., y: 2.})
+            .build();
+        world.create_entity()
+            .add(Pos{x: 3., y: 3.})
+            .build();
+
+        assert_eq!(world.iter_for::<::Read<Pos>>().count(), 3);
+        let mut iter = world.iter_for::<::Read<Pos>>();
+        assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn insert_read_write() {
+        #[derive(Debug,PartialEq,Copy,Clone)]
+        struct Pos{
+            x: f32,
+            y: f32,
+        }
+
+        impl ::Component for Pos{
+            type Storage = ::DenseVec<Pos>;
+        }
+
+        #[derive(Debug,PartialEq,Copy,Clone)]
+        struct Vel{
+            x: f32,
+            y: f32,
+        }
+
+        impl ::Component for Vel{
+            type Storage = ::DenseVec<Vel>;
+        }
+
+        let mut world = ::World::new();
+        world.register::<Pos>();
+        world.register::<Vel>();
+        world.create_entity()
+            .add(Pos{x: 1., y: 1.})
+            .add(Vel{x: 1., y: 1.})
+            .build();
+        world.create_entity()
+            .add(Pos{x: 2., y: 2.})
+            .add(Vel{x: 1., y: 1.})
+            .build();
+        world.create_entity()
+            .add(Pos{x: 3., y: 3.})
+            .add(Vel{x: 1., y: 1.})
+            .build();
+
+        for (pos, vel) in world.iter_for::<(::Write<Pos>, ::Read<Vel>)>(){
+            pos.x += vel.x;
+            pos.y += vel.y;
+        }
+
+        assert_eq!(world.iter_for::<::Read<Pos>>().count(), 3);
+        let mut iter = world.iter_for::<::Read<Pos>>();
+        assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 4., y: 4.}));
+        assert_eq!(iter.next(), None);
+    }
+
+    // #[test]
+    // fn parallel(){
+    //     use std::thread;
+    //     use rayon::prelude::*;
+    //
+    //     #[derive(Debug,PartialEq,Copy,Clone)]
+    //     struct Pos{
+    //         x: f32,
+    //         y: f32,
+    //     }
+    //
+    //     impl ::Component for Pos{
+    //         type Storage = ::DenseVec<Pos>;
+    //     }
+    //
+    //     let mut world = ::World::new();
+    //     world.register::<Pos>();
+    //
+    //     vec![0,1,2,3,4,5,6,7,8,9].par_iter().for_each(|i|{
+    //         world.create_entity()
+    //             .add(Pos{x: *i as f32, y: *i as f32})
+    //             .build();
+    //     });
+    //
+    //     assert_eq!(world.iter_for::<::Read<Pos>>().count(), 3);
+    //     let mut iter = world.iter_for::<::Read<Pos>>();
+    //     assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
+    //     assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
+    //     assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
+    //     assert_eq!(iter.next(), None);
+    // }
 }
