@@ -2,7 +2,7 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 #![feature(conservative_impl_trait)]
 
-extern crate rayon;
+// extern crate rayon;
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -25,7 +25,7 @@ pub struct World{
     storages_thread_local: HashMap<TypeId, Box<Any>>,
 
     next_guid: AtomicUsize,
-    entities: RwLock<Vec<Entity>>,
+    entities: Vec<Entity>, // Doesn't need lock cause never accesed mut from Entities?
     entities_index_per_mask: RwLock<HashMap<usize, Vec<usize>>>,
 
     next_component_mask: AtomicUsize,
@@ -39,7 +39,7 @@ impl World{
             storages_thread_local: HashMap::new(),
             next_guid: AtomicUsize::new(0),
             next_component_mask: AtomicUsize::new(1),
-            entities: RwLock::new(Vec::new()),
+            entities: Vec::new(),
             components_mask_index: HashMap::new(),
             entities_index_per_mask: RwLock::new(HashMap::new()),
         }
@@ -83,7 +83,7 @@ impl World{
     }
 
     pub(crate) fn push_entity(&mut self, e: ::Entity){
-        self.entities.get_mut().unwrap().push(e)
+        self.entities.push(e)
     }
 
     pub(crate) fn storage<C: ::Component>(&self) -> Option<RwLockReadGuard<<C as ::Component>::Storage>> {
@@ -130,7 +130,7 @@ impl World{
 
     pub(crate) fn entities_for_mask(&self, mask: usize) -> IndexGuard{
         if !self.entities_index_per_mask.read().unwrap().contains_key(&mask){
-            let entities = self.entities.read().unwrap().iter().filter_map(|e|
+            let entities = self.entities.iter().filter_map(|e|
                 if e.components_mask & mask == mask{
                     Some(e.guid())
                 }else{
