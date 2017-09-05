@@ -56,13 +56,13 @@ fn build() -> ::World {
     w
 }
 
-fn write_1(w: &::World){
+fn write_1(w: ::Entities){
     for (w1, r) in w.iter_for::<(::Write<W1>, ::Read<R>)>() {
         w1.x = r.x;
     }
 }
 
-fn write_2(w: &::World){
+fn write_2(w: ::Entities){
     for (w2, r) in w.iter_for::<(::Write<W2>, ::Read<R>)>() {
         w2.x = r.x;
     }
@@ -78,6 +78,8 @@ fn bench_update(b: &mut Bencher) {
     let mut world = build();
 
     b.iter(|| {
-        rayon::join(||write_1(&world), ||write_2(&world));
+        let entities1 = world.entities();
+        let entities2 = world.entities();
+        rayon::join(||write_1(entities1), ||write_2(entities2));
     });
 }

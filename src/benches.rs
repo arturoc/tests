@@ -59,19 +59,19 @@ impl ::Component for Velocity{
 fn build() -> ::World {
     let mut world = ::World::new();
 
-    world.register::<Position>();
-    world.register::<Velocity>();
+    world.register_thread_local::<Position>();
+    world.register_thread_local::<Velocity>();
 
     // setup entities
     for _ in 0..N_POS_VEL {
         world.create_entity()
-            .add(Position { x: 0.0, y: 0.0 })
-            .add(Velocity { dx: 0.0, dy: 0.0 })
+            .add_thread_local(Position { x: 0.0, y: 0.0 })
+            .add_thread_local(Velocity { dx: 0.0, dy: 0.0 })
             .build();
     }
     for _ in 0..N_POS {
         world.create_entity()
-            .add(Position { x: 0.0, y: 0.0 })
+            .add_thread_local(Position { x: 0.0, y: 0.0 })
             .build();
     }
 
@@ -91,13 +91,14 @@ fn bench_update(b: &mut Bencher) {
     let mut world = build();
 
     b.iter(||{
+        let entities = world.entities_thread_local();
         // world.run_once();
-        for (pos, vel) in world.iter_for::<(::Write<Position>, ::Read<Velocity>)>(){
+        for (pos, vel) in entities.iter_for::<(::Write<Position>, ::Read<Velocity>)>(){
             pos.x += vel.dx;
             pos.y += vel.dy;
         }
 
-        for pos in world.iter_for::<::Read<Position>>(){
+        for pos in entities.iter_for::<::Read<Position>>(){
             let _ = pos;
         }
     });

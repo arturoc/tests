@@ -32,53 +32,6 @@ pub struct World{
     entities_index_per_mask: RwLock<HashMap<usize, Vec<usize>>>,
 }
 
-unsafe impl Send for World{}
-unsafe impl Sync for World{}
-
-struct IndexGuard<'a>{
-    _index_guard: RwLockReadGuard<'a, HashMap<usize, Vec<usize>>>,
-    index: &'a [usize],
-}
-
-pub enum StorageReadGuard<'a, S: 'a>{
-    ThreadLocal(Ref<'a,S>),
-    Sync(RwLockReadGuard<'a,S>),
-}
-
-pub enum StorageWriteGuard<'a, S: 'a>{
-    ThreadLocal(RefMut<'a,S>),
-    Sync(RwLockWriteGuard<'a,S>),
-}
-
-impl<'a, S: 'a> Deref for StorageReadGuard<'a, S>{
-    type Target = S;
-    fn deref(&self) -> &S{
-        match self{
-            &StorageReadGuard::ThreadLocal(ref s) => s.deref(),
-            &StorageReadGuard::Sync(ref s) => s.deref(),
-        }
-    }
-}
-
-impl<'a, S: 'a> Deref for StorageWriteGuard<'a, S>{
-    type Target = S;
-    fn deref(&self) -> &S{
-        match self{
-            &StorageWriteGuard::ThreadLocal(ref s) => s.deref(),
-            &StorageWriteGuard::Sync(ref s) => s.deref(),
-        }
-    }
-}
-
-impl<'a, S: 'a> DerefMut for StorageWriteGuard<'a, S>{
-    fn deref_mut(&mut self) -> &mut S{
-        match self{
-            &mut StorageWriteGuard::ThreadLocal(ref mut s) => s.deref_mut(),
-            &mut StorageWriteGuard::Sync(ref mut s) => s.deref_mut(),
-        }
-    }
-}
-
 impl World{
     pub fn new() -> World{
         World{
@@ -117,8 +70,12 @@ impl World{
         EntityBuilder::new(self)
     }
 
-    pub fn iter_for<'a, U: UnorderedData<'a>>(&'a self) -> <U as UnorderedData>::Iter{
-        U::into_iter(self)
+    pub fn entities(&self) -> Entities{
+        Entities::new(self)
+    }
+
+    pub fn entities_thread_local(&self) -> EntitiesThreadLocal{
+        EntitiesThreadLocal::new(self)
     }
 
     pub(crate) fn next_guid(&mut self) -> usize{
@@ -143,27 +100,27 @@ impl World{
         })
     }
 
-    pub(crate) fn storage_thread_local<C: ::Component>(&self) -> Option<StorageReadGuard<<C as ::Component>::Storage>> {
+    pub(crate) fn storage_thread_local<C: ::Component>(&self) -> Option<ReadGuardRef<<C as ::Component>::Storage>> {
         let local = self.storages_thread_local.get(&TypeId::of::<C>()).map(|s| {
             let s: &RefCell<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
-            StorageReadGuard::ThreadLocal(s.borrow())
+            ReadGuard::ThreadLocal(s.borrow())
         });
         if local.is_some(){
-            local
+            local.map(|local| ReadGuardRef::new(local))
         }else{
-            self.storage::<C>().map(|sync| StorageReadGuard::Sync(sync))
+            self.storage::<C>().map(|sync| ReadGuardRef::new(ReadGuard::Sync(sync)))
         }
     }
 
-    pub(crate) fn storage_thread_local_mut<C: ::Component>(&self) -> Option<StorageWriteGuard<<C as ::Component>::Storage>> {
+    pub(crate) fn storage_thread_local_mut<C: ::Component>(&self) -> Option<WriteGuardRef<<C as ::Component>::Storage>> {
         let local = self.storages_thread_local.get(&TypeId::of::<C>()).map(|s| {
             let s: &RefCell<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
-            StorageWriteGuard::ThreadLocal(s.borrow_mut())
+            WriteGuard::ThreadLocal(s.borrow_mut())
         });
         if local.is_some(){
-            local
+            local.map(|local| WriteGuardRef::new(local))
         }else{
-            self.storage_mut::<C>().map(|sync| StorageWriteGuard::Sync(sync))
+            self.storage_mut::<C>().map(|sync| WriteGuardRef::new(WriteGuard::Sync(sync)))
         }
     }
 
@@ -189,6 +146,103 @@ impl World{
             _index_guard,
             index,
         }
+    }
+}
+
+
+struct IndexGuard<'a>{
+    _index_guard: RwLockReadGuard<'a, HashMap<usize, Vec<usize>>>,
+    index: &'a [usize],
+}
+
+pub enum ReadGuard<'a, S: 'a>{
+    ThreadLocal(Ref<'a,S>),
+    Sync(RwLockReadGuard<'a,S>),
+}
+
+pub enum WriteGuard<'a, S: 'a>{
+    ThreadLocal(RefMut<'a,S>),
+    Sync(RwLockWriteGuard<'a,S>),
+}
+
+impl<'a, S: 'a> Deref for ReadGuard<'a, S>{
+    type Target = S;
+    #[inline]
+    fn deref(&self) -> &S{
+        match self{
+            &ReadGuard::ThreadLocal(ref s) => s.deref(),
+            &ReadGuard::Sync(ref s) => s.deref(),
+        }
+    }
+}
+
+pub struct ReadGuardRef<'a, S: 'a>{
+    _guard: ReadGuard<'a, S>,
+    reference: &'a S,
+}
+
+impl<'a, S: 'a> ReadGuardRef<'a, S>{
+    fn new(guard: ReadGuard<'a, S>) -> ReadGuardRef<'a, S>{
+        ReadGuardRef{
+            reference: unsafe{ mem::transmute::<&S, &S>(guard.deref()) },
+            _guard: guard,
+        }
+    }
+}
+
+impl<'a, S: 'a> Deref for ReadGuardRef<'a, S>{
+    type Target = S;
+    #[inline]
+    fn deref(&self) -> &S{
+        self.reference
+    }
+}
+
+impl<'a, S: 'a> Deref for WriteGuard<'a, S>{
+    type Target = S;
+    fn deref(&self) -> &S{
+        match self{
+            &WriteGuard::ThreadLocal(ref s) => s.deref(),
+            &WriteGuard::Sync(ref s) => s.deref(),
+        }
+    }
+}
+
+impl<'a, S: 'a> DerefMut for WriteGuard<'a, S>{
+    fn deref_mut(&mut self) -> &mut S{
+        match self{
+            &mut WriteGuard::ThreadLocal(ref mut s) => s.deref_mut(),
+            &mut WriteGuard::Sync(ref mut s) => s.deref_mut(),
+        }
+    }
+}
+
+pub struct WriteGuardRef<'a, S: 'a>{
+    _guard: WriteGuard<'a, S>,
+    reference: &'a mut S,
+}
+
+impl<'a, S: 'a> WriteGuardRef<'a, S>{
+    fn new(mut guard: WriteGuard<'a, S>) -> WriteGuardRef<'a, S>{
+        WriteGuardRef{
+            reference: unsafe{ mem::transmute::<&mut S, &mut S>(guard.deref_mut()) },
+            _guard: guard,
+        }
+    }
+}
+
+impl<'a, S: 'a> Deref for WriteGuardRef<'a, S>{
+    type Target = S;
+    #[inline]
+    fn deref(&self) -> &S{
+        self.reference
+    }
+}
+
+impl<'a, S: 'a> DerefMut for WriteGuardRef<'a, S>{
+    #[inline]
+    fn deref_mut(&mut self) -> &mut S{
+        self.reference
     }
 }
 
@@ -229,7 +283,7 @@ impl<'a> EntityBuilder<'a>{
         entity
     }
 
-    pub fn add<C: Component>(&mut self, component: C) -> &mut Self {
+    pub fn add<C: ComponentSync>(&mut self, component: C) -> &mut Self {
         {
             let storage = self.world.storage_mut::<C>();
             if let Some(mut storage) = storage{
@@ -241,6 +295,65 @@ impl<'a> EntityBuilder<'a>{
         self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
         self
     }
+
+    pub fn add_thread_local<C: ComponentThreadLocal>(&mut self, component: C) -> &mut Self {
+        {
+            let storage = self.world.storage_thread_local_mut::<C>();
+            if let Some(mut storage) = storage{
+                storage.insert(self.guid, component)
+            }else{
+                panic!("Trying to add component of type {} without registering first", "type_name");//C::type_name())
+            }
+        };
+        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self
+    }
+}
+
+
+pub struct Entities<'a>{
+    world: &'a ::World,
+}
+
+
+unsafe impl<'a> Send for Entities<'a>{}
+unsafe impl<'a> Sync for Entities<'a>{}
+
+impl<'a> Entities<'a>{
+    pub(crate) fn new(world: &World) -> Entities{
+        Entities{ world }
+    }
+
+    pub fn iter_for<S: UnorderedData<'a> + 'a>(&self) -> <S as UnorderedData<'a>>::Iter{
+        S::into_iter(self.world)
+    }
+
+    pub fn component_for<C: ::ComponentSync>(&self, entity: Entity) -> &'a C{
+        let storage = self.world.storage::<C>()
+            .expect(&format!("Trying to use non registered type {}", "type name"));//C::type_name()));
+        unsafe{ mem::transmute::<&C,&C>( storage.get(entity.guid()) )}
+    }
+}
+
+
+pub struct EntitiesThreadLocal<'a>{
+    world: &'a ::World,
+}
+
+impl<'a> EntitiesThreadLocal<'a>{
+    pub(crate) fn new(world: &World) -> EntitiesThreadLocal{
+        EntitiesThreadLocal{ world }
+    }
+
+    pub fn iter_for<S: UnorderedDataLocal<'a> + 'a>(&self) -> <S as UnorderedDataLocal<'a>>::Iter{
+        S::into_iter(self.world)
+    }
+
+    pub fn component_for<C: ::ComponentThreadLocal>(&self, entity: Entity) -> &'a C{
+        let storage = self.world.storage_thread_local::<C>()
+            .expect(&format!("Trying to use non registered type {}", "type name"));//C::type_name()));
+        unsafe{ mem::transmute::<&C,&C>( storage.get(entity.guid()) )}
+    }
 }
 
 pub trait Component: 'static + Sized {
@@ -249,7 +362,9 @@ pub trait Component: 'static + Sized {
 
 pub trait ComponentSync: Component{}
 impl<C: Component + Send> ComponentSync for C{}
+
 pub trait ComponentThreadLocal: Component{}
+impl<C: Component> ComponentThreadLocal for C{}
 
 pub trait Storage<T>{
     fn new() -> Self;
@@ -303,7 +418,7 @@ impl<T> Storage<T> for DenseVec<T>{
     }
 }
 
-impl<'a, T> IntoIter for StorageReadGuard<'a, DenseVec<T>>{
+impl<'a, T> IntoIter for ReadGuardRef<'a, DenseVec<T>>{
     type Iter = DenseIter<'a, T>;
     fn into_iter(self) -> DenseIter<'a, T>{
         DenseIter{
@@ -318,11 +433,11 @@ impl<'a, T> IntoIter for StorageReadGuard<'a, DenseVec<T>>{
 impl<'a, T> IntoIter for RwLockReadGuard<'a, DenseVec<T>>{
     type Iter = DenseIter<'a, T>;
     fn into_iter(self) -> DenseIter<'a, T>{
-        StorageReadGuard::Sync(self).into_iter()
+        ReadGuardRef::new(ReadGuard::Sync(self)).into_iter()
     }
 }
 
-impl<'a, T> IntoIterMut for StorageWriteGuard<'a, DenseVec<T>>{
+impl<'a, T> IntoIterMut for WriteGuardRef<'a, DenseVec<T>>{
     type IterMut = DenseIterMut<'a, T>;
     fn into_iter_mut(mut self) -> DenseIterMut<'a, T>{
         DenseIterMut{
@@ -337,12 +452,12 @@ impl<'a, T> IntoIterMut for StorageWriteGuard<'a, DenseVec<T>>{
 impl<'a, T> IntoIterMut for RwLockWriteGuard<'a, DenseVec<T>>{
     type IterMut = DenseIterMut<'a, T>;
     fn into_iter_mut(self) -> DenseIterMut<'a, T>{
-        StorageWriteGuard::Sync(self).into_iter_mut()
+        WriteGuardRef::new(WriteGuard::Sync(self)).into_iter_mut()
     }
 }
 
 pub struct DenseIter<'a, T: 'a>{
-    _guard: StorageReadGuard<'a, DenseVec<T>>,
+    _guard: ReadGuardRef<'a, DenseVec<T>>,
     ptr: *const T,
     end: *const T,
     _marker: marker::PhantomData<&'a T>,
@@ -364,7 +479,7 @@ impl<'a, T: 'a> Iterator for DenseIter<'a, T>{
 }
 
 pub struct DenseIterMut<'a, T: 'a>{
-    _guard: StorageWriteGuard<'a, DenseVec<T>>,
+    _guard: WriteGuardRef<'a, DenseVec<T>>,
     ptr: *mut T,
     end: *mut T,
     _marker: marker::PhantomData<&'a T>,
@@ -406,11 +521,11 @@ impl<'a, T: 'a> Iterator for DenseUnorderedIter<'a, T>{
 
 
 // Sync Read/Write
-pub struct Read<'a, T: 'a + ComponentSync>{
+pub struct Read<'a, T: 'a + Component>{
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct Write<'a, T: 'a + ComponentSync>{
+pub struct Write<'a, T: 'a + Component>{
     _marker: marker::PhantomData<&'a T>,
 }
 
@@ -498,35 +613,23 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Write<'a,T>
 
 
 // Thread local Read/Write
-pub struct ReadLocal<'a, T: 'a + ComponentThreadLocal>{
-    _marker: marker::PhantomData<&'a T>,
-}
-
-pub struct WriteLocal<'a, T: 'a + ComponentThreadLocal>{
-    _marker: marker::PhantomData<&'a T>,
-}
-
 pub struct StorageReadLocal<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal>{
-    storage: StorageReadGuard<'a, S>,
+    storage: ReadGuardRef<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
 pub struct StorageWriteLocal<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal>{
-    storage: RefCell<StorageWriteGuard<'a, S>>,
+    storage: RefCell<WriteGuardRef<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub trait StorageLocalRef<'a, T>{
-    fn get(&self, guid: usize) -> T;
-}
-
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageLocalRef<'a, &'a T> for StorageReadLocal<'a, S, T>{
+impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, &'a T> for StorageReadLocal<'a, S, T>{
     fn get(&self, guid: usize) -> &'a T{
         unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
     }
 }
 
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageLocalRef<'a, &'a mut T> for StorageWriteLocal<'a, S, T>{
+impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, &'a mut T> for StorageWriteLocal<'a, S, T>{
     fn get(&self, guid: usize) -> &'a mut T{
         unsafe{ mem::transmute::<&mut T, &mut T>(self.storage.borrow_mut().get_mut(guid)) }
     }
@@ -542,10 +645,10 @@ pub trait UnorderedDataLocal<'a>{
     fn storage(world: &'a ::World) -> Self::Storage;
 }
 
-impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for ReadLocal<'a,T>
-    where for<'b> StorageReadGuard<'b, <T as Component>::Storage>: IntoIter
+impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Read<'a,T>
+    where for<'b> ReadGuardRef<'b, <T as Component>::Storage>: IntoIter
 {
-    type Iter = <StorageReadGuard<'a, <T as Component>::Storage> as IntoIter>::Iter;
+    type Iter = <ReadGuardRef<'a, <T as Component>::Storage> as IntoIter>::Iter;
     type Components = T;
     type ComponentsRef = &'a T;
     type Storage = StorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
@@ -565,10 +668,10 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for ReadLocal<'a,T
     }
 }
 
-impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for WriteLocal<'a,T>
-    where for<'b> StorageWriteGuard<'b, <T as Component>::Storage>: IntoIterMut
+impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Write<'a,T>
+    where for<'b> WriteGuardRef<'b, <T as Component>::Storage>: IntoIterMut
 {
-    type Iter = <StorageWriteGuard<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
+    type Iter = <WriteGuardRef<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
     type Components = T;
     type ComponentsRef = &'a mut T;
     type Storage = StorageWriteLocal<'a, <T as Component>::Storage, Self::Components>;
@@ -672,6 +775,49 @@ impl<'a, U1: UnorderedData<'a>, U2: UnorderedData<'a>> UnorderedData<'a> for (U1
 }
 
 
+
+impl<'a, U1: UnorderedDataLocal<'a>, U2: UnorderedDataLocal<'a>> UnorderedDataLocal<'a> for (U1,U2)
+    where <U1 as UnorderedDataLocal<'a>>::Storage: 'a,
+          <U2 as UnorderedDataLocal<'a>>::Storage: 'a,
+          U1: 'a,
+          U2: 'a,
+{
+    type Iter = CombinedUnorderedIter<'a,
+                    <U1 as UnorderedDataLocal<'a>>::ComponentsRef,
+                    <U1 as UnorderedDataLocal<'a>>::Storage,
+                    <U2 as UnorderedDataLocal<'a>>::ComponentsRef,
+                    <U2 as UnorderedDataLocal<'a>>::Storage>;
+    type Components = (<U1 as UnorderedDataLocal<'a>>::Components,
+                       <U2 as UnorderedDataLocal<'a>>::Components);
+    type ComponentsRef = (<U1 as UnorderedDataLocal<'a>>::ComponentsRef,
+                          <U2 as UnorderedDataLocal<'a>>::ComponentsRef);
+    type Storage = CombinedStorageRef<<U1 as UnorderedDataLocal<'a>>::Storage,
+                                      <U2 as UnorderedDataLocal<'a>>::Storage>;
+
+    fn components_mask(world: &'a World) -> usize{
+        U1::components_mask(world) | U2::components_mask(world)
+    }
+
+    fn into_iter(world: &'a ::World) -> Self::Iter {
+        CombinedUnorderedIter{
+            // mask: Self::components_mask(world),
+            // entities: &world.entities,
+            ids: world.entities_for_mask(Self::components_mask(world)),
+            storage1: U1::storage(world),
+            _marker1: marker::PhantomData,
+            storage2: U2::storage(world),
+            _marker2: marker::PhantomData,
+            next: 0,
+        }
+    }
+
+    fn storage(world: &'a ::World) -> Self::Storage{
+        CombinedStorageRef{
+            storage1: U1::storage(world),
+            storage2: U2::storage(world),
+        }
+    }
+}
 
 
 
@@ -778,6 +924,57 @@ impl<'a, U1: UnorderedData<'a>, U2: UnorderedData<'a>, U3: UnorderedData<'a>> Un
     }
 }
 
+
+impl<'a, U1: UnorderedDataLocal<'a>, U2: UnorderedDataLocal<'a>, U3: UnorderedDataLocal<'a>> UnorderedDataLocal<'a> for (U1,U2,U3)
+    where <U1 as UnorderedDataLocal<'a>>::Storage: 'a,
+          <U2 as UnorderedDataLocal<'a>>::Storage: 'a,
+          <U3 as UnorderedDataLocal<'a>>::Storage: 'a,
+          U1: 'a,
+          U2: 'a,
+          U3: 'a,
+{
+    type Iter = CombinedUnorderedIter3<'a,
+                    <U1 as UnorderedDataLocal<'a>>::ComponentsRef, <U1 as UnorderedDataLocal<'a>>::Storage,
+                    <U2 as UnorderedDataLocal<'a>>::ComponentsRef, <U2 as UnorderedDataLocal<'a>>::Storage,
+                    <U3 as UnorderedDataLocal<'a>>::ComponentsRef, <U3 as UnorderedDataLocal<'a>>::Storage>;
+    type Components = (<U1 as UnorderedDataLocal<'a>>::Components,
+                       <U2 as UnorderedDataLocal<'a>>::Components,
+                       <U3 as UnorderedDataLocal<'a>>::Components);
+    type ComponentsRef = (<U1 as UnorderedDataLocal<'a>>::ComponentsRef,
+                          <U2 as UnorderedDataLocal<'a>>::ComponentsRef,
+                          <U3 as UnorderedDataLocal<'a>>::ComponentsRef);
+    type Storage = CombinedStorageRef3<
+                        <U1 as UnorderedDataLocal<'a>>::Storage,
+                        <U2 as UnorderedDataLocal<'a>>::Storage,
+                        <U3 as UnorderedDataLocal<'a>>::Storage>;
+    fn components_mask(world: &'a World) -> usize{
+        U1::components_mask(world) | U2::components_mask(world) | U3::components_mask(world)
+    }
+
+    fn into_iter(world: &'a ::World) -> Self::Iter {
+        CombinedUnorderedIter3{
+            // mask: Self::components_mask(world),
+            // entities: &world.entities,
+            ids: world.entities_for_mask(Self::components_mask(world)),
+            storage1: U1::storage(world),
+            _marker1: marker::PhantomData,
+            storage2: U2::storage(world),
+            _marker2: marker::PhantomData,
+            storage3: U3::storage(world),
+            _marker3: marker::PhantomData,
+            next: 0,
+        }
+    }
+
+    fn storage(world: &'a ::World) -> Self::Storage{
+        CombinedStorageRef3{
+            storage1: U1::storage(world),
+            storage2: U2::storage(world),
+            storage3: U3::storage(world),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -804,8 +1001,9 @@ mod tests {
             .add(Pos{x: 3., y: 3.})
             .build();
 
-        assert_eq!(world.iter_for::<::Read<Pos>>().count(), 3);
-        let mut iter = world.iter_for::<::Read<Pos>>();
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
+        let mut iter = entities.iter_for::<::Read<Pos>>();
         assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
         assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
         assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
@@ -850,13 +1048,14 @@ mod tests {
             .add(Vel{x: 1., y: 1.})
             .build();
 
-        for (pos, vel) in world.iter_for::<(::Write<Pos>, ::Read<Vel>)>(){
+        let entities = world.entities();
+        for (pos, vel) in entities.iter_for::<(::Write<Pos>, ::Read<Vel>)>(){
             pos.x += vel.x;
             pos.y += vel.y;
         }
 
-        assert_eq!(world.iter_for::<::Read<Pos>>().count(), 3);
-        let mut iter = world.iter_for::<::Read<Pos>>();
+        assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
+        let mut iter = entities.iter_for::<::Read<Pos>>();
         assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
         assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
         assert_eq!(iter.next(), Some(&Pos{x: 4., y: 4.}));
@@ -921,24 +1120,27 @@ mod tests {
                 .build();
         }
 
-        fn write1(w: &::World){
+        fn write1(w: ::Entities){
             for (pos, _, vel) in w.iter_for::<(::Write<Pos>, ::Read<C1>, ::Read<Vel>)>(){
                 pos.x += vel.x;
                 pos.y += vel.y;
             }
         }
 
-        fn write2(w: &::World){
+        fn write2(w: ::Entities){
             for (pos, _, vel) in w.iter_for::<(::Write<Pos>, ::Read<C2>, ::Read<Vel>)>(){
                 pos.x += vel.x;
                 pos.y += vel.y;
             }
         }
 
-        rayon::join(|| write1(&world), || write2(&world));
+        let entities1 = world.entities();
+        let entities2 = world.entities();
+        rayon::join(||write1(entities1), ||write2(entities2));
 
-        assert_eq!(world.iter_for::<::Read<Pos>>().count(), 200);
-        let mut iter = world.iter_for::<::Read<Pos>>();
+        let entities = world.entities_thread_local();
+        assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 200);
+        let mut iter = entities.iter_for::<::Read<Pos>>();
         for i in 0..100{
             assert_eq!(iter.next(), Some(&Pos{x: (i + 1) as f32, y: (i + 1) as f32}));
         }
@@ -946,37 +1148,4 @@ mod tests {
             assert_eq!(iter.next(), Some(&Pos{x: (i + 1) as f32, y: (i + 1) as f32}));
         }
     }
-
-    // #[test]
-    // fn parallel_build(){
-    //     use std::thread;
-    //     use rayon::prelude::*;
-    //
-    //     #[derive(Debug,PartialEq,Copy,Clone)]
-    //     struct Pos{
-    //         x: f32,
-    //         y: f32,
-    //     }
-    //
-    //     impl ::Component for Pos{
-    //         type Storage = ::DenseVec<Pos>;
-    //     }
-    //
-    //     let mut world = ::World::new();
-    //     world.register::<Pos>();
-    //
-    //     // Won't work since we hold world mutably
-    //     vec![0,1,2,3,4,5,6,7,8,9].par_iter().for_each(|i|{
-    //         world.create_entity()
-    //             .add(Pos{x: *i as f32, y: *i as f32})
-    //             .build();
-    //     });
-    //
-    //     assert_eq!(world.iter_for::<::Read<Pos>>().count(), 3);
-    //     let mut iter = world.iter_for::<::Read<Pos>>();
-    //     assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
-    //     assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
-    //     assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
-    //     assert_eq!(iter.next(), None);
-    // }
 }
