@@ -33,11 +33,11 @@ impl<T> Storage<T> for DenseVec<T>{
     }
 
     unsafe fn get(&self, guid: usize) -> &T{
-        self.storage.get_unchecked(self.index[guid])
+        self.storage.get_unchecked(*self.index.get_unchecked(guid))
     }
 
     unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
-        self.storage.get_unchecked_mut(self.index[guid])
+        self.storage.get_unchecked_mut(*self.index.get_unchecked(guid))
     }
 }
 
