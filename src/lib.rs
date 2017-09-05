@@ -2,11 +2,12 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 #![feature(conservative_impl_trait)]
 
-// extern crate rayon;
+extern crate rayon;
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::cell::{RefCell, Ref, RefMut};
+use std::cell::UnsafeCell;
 use std::marker;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -535,7 +536,7 @@ pub struct StorageRead<'a, S: Storage<T> + 'a, T: 'a + ComponentSync>{
 }
 
 pub struct StorageWrite<'a, S: Storage<T> + 'a, T: 'a + ComponentSync>{
-    storage: RefCell<RwLockWriteGuard<'a, S>>,
+    storage: UnsafeCell<RwLockWriteGuard<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
@@ -551,7 +552,7 @@ impl<'a, S: Storage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, &'a T> for St
 
 impl<'a, S: Storage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, &'a mut T> for StorageWrite<'a, S, T>{
     fn get(&self, guid: usize) -> &'a mut T{
-        unsafe{ mem::transmute::<&mut T, &mut T>(self.storage.borrow_mut().get_mut(guid)) }
+        unsafe{ mem::transmute::<&mut T, &mut T>( (*self.storage.get()).get_mut(guid) ) }
     }
 }
 
@@ -605,7 +606,7 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Write<'a,T>
 
     fn storage(world: &'a ::World) -> Self::Storage{
         StorageWrite{
-            storage: RefCell::new(world.storage_mut::<T>().unwrap()),
+            storage: UnsafeCell::new(world.storage_mut::<T>().unwrap()),
             _marker: marker::PhantomData,
         }
     }
@@ -619,7 +620,7 @@ pub struct StorageReadLocal<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal
 }
 
 pub struct StorageWriteLocal<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal>{
-    storage: RefCell<WriteGuardRef<'a, S>>,
+    storage: UnsafeCell<WriteGuardRef<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
@@ -631,7 +632,7 @@ impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, &'a T>
 
 impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, &'a mut T> for StorageWriteLocal<'a, S, T>{
     fn get(&self, guid: usize) -> &'a mut T{
-        unsafe{ mem::transmute::<&mut T, &mut T>(self.storage.borrow_mut().get_mut(guid)) }
+        unsafe{ mem::transmute::<&mut T, &mut T>((*self.storage.get()).get_mut(guid)) }
     }
 }
 
@@ -685,7 +686,7 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Write<'a,T>
 
     fn storage(world: &'a ::World) -> Self::Storage{
         StorageWriteLocal{
-            storage: RefCell::new(world.storage_thread_local_mut::<T>().unwrap()),
+            storage: UnsafeCell::new(world.storage_thread_local_mut::<T>().unwrap()),
             _marker: marker::PhantomData,
         }
     }
