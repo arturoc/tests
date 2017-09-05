@@ -1,4 +1,3 @@
-#![cfg_attr(feature = "unstable", feature(core_intrinsics))]
 #![cfg_attr(feature = "unstable", feature(test))]
 #![feature(conservative_impl_trait)]
 
@@ -695,286 +694,168 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Write<'a,T>
 
 
 //-------------------------------------------------------------------
-// Combined iterators, generalize for more than 2
-pub struct CombinedUnorderedIter<'a,T1, S1:'a,T2, S2: 'a>{
-    //mask: usize,
-    //entities: &'a [Entity],
-    ids: IndexGuard<'a>,
-    storage1: S1,
-    _marker1: marker::PhantomData<T1>,
-    storage2: S2,
-    _marker2: marker::PhantomData<T2>,
-    next: usize,
-}
+// Combined iterators
+macro_rules! impl_combined_unordered_iter {
+    ($iter: ident, $storage_ref: ident, $($t: ident, $s: ident, $u: ident),*) => (
 
-impl<'a,T1,S1: StorageRef<'a,T1> + 'a,T2,S2: StorageRef<'a,T2> + 'a> Iterator for CombinedUnorderedIter<'a,T1,S1,T2,S2>{
-    type Item = (T1,T2);
-    fn next(&mut self) -> Option<Self::Item>{
-        // if self.next == self.entities.len(){
-        //     None
-        // }else{
-        //     let next = self.next;
-        //     self.next += 1;
-        //     self.entities[next..].iter()
-        //         .find(|e| e.components_mask & self.mask == self.mask)
-        //         .map(|e| (self.storage1.get(e.guid()), self.storage2.get(e.guid())))
-        // }
-        if self.next == self.ids.index.len(){
-            None
-        }else{
-            let guid = self.ids.index[self.next];
-            self.next += 1;
-            Some((self.storage1.get(guid), self.storage2.get(guid)))
+        #[allow(non_snake_case, dead_code)]
+        pub struct $iter<'a,$($t, $s:'a,)*>{
+            ids: ::IndexGuard<'a>,
+            next: usize,
+            $(
+                $s: $s,
+                $t: marker::PhantomData<$t>,
+            )*
         }
-    }
-}
 
-pub struct CombinedStorageRef<S1,S2>{
-    storage1: S1,
-    storage2: S2,
-}
+        impl<'a, $($t, $s: ::StorageRef<'a, $t> + 'a,)*> Iterator for $iter<'a,$($t, $s,)*>{
+            type Item = ($($t),*);
+            fn next(&mut self) -> Option<Self::Item>{
+                // if self.next == self.entities.len(){
+                //     None
+                // }else{
+                //     let next = self.next;
+                //     self.next += 1;
+                //     self.entities[next..].iter()
+                //         .find(|e| e.components_mask & self.mask == self.mask)
+                //         .map(|e| (self.storage1.get(e.guid()), self.storage2.get(e.guid())))
+                // }
 
-impl<'a,T1,T2,S1:StorageRef<'a,T1>,S2:StorageRef<'a,T2>> StorageRef<'a, (T1,T2)> for CombinedStorageRef<S1,S2>{
-    fn get(&self, guid: usize) -> (T1,T2){
-        (self.storage1.get(guid), self.storage2.get(guid))
-    }
-}
-
-impl<'a, U1: UnorderedData<'a>, U2: UnorderedData<'a>> UnorderedData<'a> for (U1,U2)
-    where <U1 as UnorderedData<'a>>::Storage: 'a,
-          <U2 as UnorderedData<'a>>::Storage: 'a,
-          U1: 'a,
-          U2: 'a,
-{
-    type Iter = CombinedUnorderedIter<'a,<U1 as UnorderedData<'a>>::ComponentsRef, <U1 as UnorderedData<'a>>::Storage, <U2 as UnorderedData<'a>>::ComponentsRef, <U2 as UnorderedData<'a>>::Storage>;
-    type Components = (<U1 as UnorderedData<'a>>::Components, <U2 as UnorderedData<'a>>::Components);
-    type ComponentsRef = (<U1 as UnorderedData<'a>>::ComponentsRef, <U2 as UnorderedData<'a>>::ComponentsRef);
-    type Storage = CombinedStorageRef<<U1 as UnorderedData<'a>>::Storage, <U2 as UnorderedData<'a>>::Storage>;
-    fn components_mask(world: &'a World) -> usize{
-        U1::components_mask(world) | U2::components_mask(world)
-    }
-
-    fn into_iter(world: &'a ::World) -> Self::Iter {
-        CombinedUnorderedIter{
-            // mask: Self::components_mask(world),
-            // entities: &world.entities,
-            ids: world.entities_for_mask(Self::components_mask(world)),
-            storage1: U1::storage(world),
-            _marker1: marker::PhantomData,
-            storage2: U2::storage(world),
-            _marker2: marker::PhantomData,
-            next: 0,
+                if self.next == self.ids.index.len(){
+                    None
+                }else{
+                    let guid = self.ids.index[self.next];
+                    self.next += 1;
+                    Some(($(self.$s.get(guid)),*))
+                }
+            }
         }
-    }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
-        CombinedStorageRef{
-            storage1: U1::storage(world),
-            storage2: U2::storage(world),
+        #[allow(non_snake_case)]
+        pub struct $storage_ref<$($s),*>{
+            $(
+                $s: $s,
+            )*
         }
-    }
+
+        impl<'a, $($t, $s: ::StorageRef<'a, $t>,)*> ::StorageRef<'a, ($($t),*)> for $storage_ref<$($s),*>{
+            fn get(&self, guid: usize) -> ($($t),*){
+                ($( self.$s.get(guid) ),*)
+            }
+        }
+            impl<'a, $($u: ::UnorderedData<'a>),* > ::UnorderedData<'a> for ($($u),*)
+                where $(
+                    <$u as ::UnorderedData<'a>>::Storage: 'a,
+                    $u: 'a,
+                )*
+            {
+                type Iter = $iter<'a, $(
+                    <$u as ::UnorderedData<'a>>::ComponentsRef, <$u as ::UnorderedData<'a>>::Storage,
+                )*>;
+
+                type Components = ($(
+                    <$u as ::UnorderedData<'a>>::Components
+                ),*);
+
+                type ComponentsRef = ($(
+                    <$u as ::UnorderedData<'a>>::ComponentsRef
+                ),*);
+
+                type Storage = $storage_ref<$(
+                    <$u as ::UnorderedData<'a>>::Storage
+                ),*>;
+
+                fn components_mask(world: &'a ::World) -> usize {
+                    $($u::components_mask(world)) | *
+                }
+
+                fn into_iter(world: &'a ::World) -> Self::Iter{
+                    $iter{
+                        ids: world.entities_for_mask(Self::components_mask(world)),
+                        next: 0,
+                        $(
+                            $s: $u::storage(world),
+                            $t: marker::PhantomData,
+                        )*
+                    }
+                }
+
+                fn storage(world: &'a ::World) -> Self::Storage{
+                    $storage_ref{
+                        $(
+                            $s: $u::storage(world),
+                        )*
+                    }
+                }
+            }
+
+            impl<'a, $($u: ::UnorderedDataLocal<'a>),* > ::UnorderedDataLocal<'a> for ($($u),*)
+                where $(
+                    <$u as ::UnorderedDataLocal<'a>>::Storage: 'a,
+                    $u: 'a,
+                )*
+            {
+                type Iter = $iter<'a, $(
+                    <$u as ::UnorderedDataLocal<'a>>::ComponentsRef, <$u as ::UnorderedDataLocal<'a>>::Storage,
+                )*>;
+
+                type Components = ($(
+                    <$u as ::UnorderedDataLocal<'a>>::Components
+                ),*);
+
+                type ComponentsRef = ($(
+                    <$u as ::UnorderedDataLocal<'a>>::ComponentsRef
+                ),*);
+
+                type Storage = $storage_ref<$(
+                    <$u as ::UnorderedDataLocal<'a>>::Storage
+                ),*>;
+
+                fn components_mask(world: &'a ::World) -> usize {
+                    $($u::components_mask(world)) | *
+                }
+
+                fn into_iter(world: &'a ::World) -> Self::Iter{
+                    $iter{
+                        ids: world.entities_for_mask(Self::components_mask(world)),
+                        next: 0,
+                        $(
+                            $s: $u::storage(world),
+                            $t: marker::PhantomData,
+                        )*
+                    }
+                }
+
+                fn storage(world: &'a ::World) -> Self::Storage{
+                    $storage_ref{
+                        $(
+                            $s: $u::storage(world),
+                        )*
+                    }
+                }
+            }
+    )
 }
 
-
-
-impl<'a, U1: UnorderedDataLocal<'a>, U2: UnorderedDataLocal<'a>> UnorderedDataLocal<'a> for (U1,U2)
-    where <U1 as UnorderedDataLocal<'a>>::Storage: 'a,
-          <U2 as UnorderedDataLocal<'a>>::Storage: 'a,
-          U1: 'a,
-          U2: 'a,
-{
-    type Iter = CombinedUnorderedIter<'a,
-                    <U1 as UnorderedDataLocal<'a>>::ComponentsRef,
-                    <U1 as UnorderedDataLocal<'a>>::Storage,
-                    <U2 as UnorderedDataLocal<'a>>::ComponentsRef,
-                    <U2 as UnorderedDataLocal<'a>>::Storage>;
-    type Components = (<U1 as UnorderedDataLocal<'a>>::Components,
-                       <U2 as UnorderedDataLocal<'a>>::Components);
-    type ComponentsRef = (<U1 as UnorderedDataLocal<'a>>::ComponentsRef,
-                          <U2 as UnorderedDataLocal<'a>>::ComponentsRef);
-    type Storage = CombinedStorageRef<<U1 as UnorderedDataLocal<'a>>::Storage,
-                                      <U2 as UnorderedDataLocal<'a>>::Storage>;
-
-    fn components_mask(world: &'a World) -> usize{
-        U1::components_mask(world) | U2::components_mask(world)
-    }
-
-    fn into_iter(world: &'a ::World) -> Self::Iter {
-        CombinedUnorderedIter{
-            // mask: Self::components_mask(world),
-            // entities: &world.entities,
-            ids: world.entities_for_mask(Self::components_mask(world)),
-            storage1: U1::storage(world),
-            _marker1: marker::PhantomData,
-            storage2: U2::storage(world),
-            _marker2: marker::PhantomData,
-            next: 0,
-        }
-    }
-
-    fn storage(world: &'a ::World) -> Self::Storage{
-        CombinedStorageRef{
-            storage1: U1::storage(world),
-            storage2: U2::storage(world),
-        }
-    }
+mod combined_unordered{
+    use std::marker;
+    impl_combined_unordered_iter!(Iter2, StorageRef2, T1, S1, U1, T2, S2, U2);
+    impl_combined_unordered_iter!(Iter3, StorageRef3, T1, S1, U1, T2, S2, U2, T3, S3, U3);
+    impl_combined_unordered_iter!(Iter4, StorageRef4, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4);
+    impl_combined_unordered_iter!(Iter5, StorageRef5, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5);
+    impl_combined_unordered_iter!(Iter6, StorageRef6, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6);
+    impl_combined_unordered_iter!(Iter7, StorageRef7, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7);
+    impl_combined_unordered_iter!(Iter8, StorageRef8, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7, T8, S8, U8);
+    impl_combined_unordered_iter!(Iter9, StorageRef9, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7, T8, S8, U8, T9, S9, U9);
+    impl_combined_unordered_iter!(Iter10, StorageRef10, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7, T8, S8, U8, T9, S9, U9, T10, S10, U10);
+    impl_combined_unordered_iter!(Iter11, StorageRef11, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7, T8, S8, U8, T9, S9, U9, T10, S10, U10, T11, S11, U11);
+    impl_combined_unordered_iter!(Iter12, StorageRef12, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7, T8, S8, U8, T9, S9, U9, T10, S10, U10, T11, S11, U11, T12, S12, U12);
+    impl_combined_unordered_iter!(Iter13, StorageRef13, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7, T8, S8, U8, T9, S9, U9, T10, S10, U10, T11, S11, U11, T12, S12, U12, T13, S13, U13);
+    impl_combined_unordered_iter!(Iter14, StorageRef14, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7, T8, S8, U8, T9, S9, U9, T10, S10, U10, T11, S11, U11, T12, S12, U12, T13, S13, U13, T14, S14, U14);
+    impl_combined_unordered_iter!(Iter15, StorageRef15, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7, T8, S8, U8, T9, S9, U9, T10, S10, U10, T11, S11, U11, T12, S12, U12, T13, S13, U13, T14, S14, U14, T15, S15, U15);
+    impl_combined_unordered_iter!(Iter16, StorageRef16, T1, S1, U1, T2, S2, U2, T3, S3, U3, T4, S4, U4, T5, S5, U5, T6, S6, U6, T7, S7, U7, T8, S8, U8, T9, S9, U9, T10, S10, U10, T11, S11, U11, T12, S12, U12, T13, S13, U13, T14, S14, U14, T15, S15, U15, T16, S16, U16);
 }
 
-
-
-
-
-
-
-
-
-pub struct CombinedUnorderedIter3<'a,T1, S1:'a,T2, S2: 'a,T3,S3: 'a>{
-    //mask: usize,
-    //entities: &'a [Entity],
-    ids: IndexGuard<'a>,
-    storage1: S1,
-    _marker1: marker::PhantomData<T1>,
-    storage2: S2,
-    _marker2: marker::PhantomData<T2>,
-    storage3: S3,
-    _marker3: marker::PhantomData<T3>,
-    next: usize,
-}
-
-impl<'a,T1,S1: StorageRef<'a,T1> + 'a,T2,S2: StorageRef<'a,T2> + 'a,T3,S3: StorageRef<'a,T3> + 'a> Iterator for CombinedUnorderedIter3<'a,T1,S1,T2,S2,T3,S3>{
-    type Item = (T1,T2,T3);
-    fn next(&mut self) -> Option<Self::Item>{
-        // if self.next == self.entities.len(){
-        //     None
-        // }else{
-        //     let next = self.next;
-        //     self.next += 1;
-        //     self.entities[next..].iter()
-        //         .find(|e| e.components_mask & self.mask == self.mask)
-        //         .map(|e| (self.storage1.get(e.guid()), self.storage2.get(e.guid())))
-        // }
-        if self.next == self.ids.index.len(){
-            None
-        }else{
-            let guid = self.ids.index[self.next];
-            self.next += 1;
-            Some((self.storage1.get(guid), self.storage2.get(guid), self.storage3.get(guid)))
-        }
-    }
-}
-
-pub struct CombinedStorageRef3<S1,S2,S3>{
-    storage1: S1,
-    storage2: S2,
-    storage3: S3,
-}
-
-impl<'a,T1,T2,T3,S1:StorageRef<'a,T1>,S2:StorageRef<'a,T2>,S3:StorageRef<'a,T3>> StorageRef<'a, (T1,T2,T3)> for CombinedStorageRef3<S1,S2,S3>{
-    fn get(&self, guid: usize) -> (T1,T2,T3){
-        (self.storage1.get(guid), self.storage2.get(guid), self.storage3.get(guid))
-    }
-}
-
-impl<'a, U1: UnorderedData<'a>, U2: UnorderedData<'a>, U3: UnorderedData<'a>> UnorderedData<'a> for (U1,U2,U3)
-    where <U1 as UnorderedData<'a>>::Storage: 'a,
-          <U2 as UnorderedData<'a>>::Storage: 'a,
-          <U3 as UnorderedData<'a>>::Storage: 'a,
-          U1: 'a,
-          U2: 'a,
-          U3: 'a,
-{
-    type Iter = CombinedUnorderedIter3<'a,
-                    <U1 as UnorderedData<'a>>::ComponentsRef, <U1 as UnorderedData<'a>>::Storage,
-                    <U2 as UnorderedData<'a>>::ComponentsRef, <U2 as UnorderedData<'a>>::Storage,
-                    <U3 as UnorderedData<'a>>::ComponentsRef, <U3 as UnorderedData<'a>>::Storage>;
-    type Components = (<U1 as UnorderedData<'a>>::Components,
-                       <U2 as UnorderedData<'a>>::Components,
-                       <U3 as UnorderedData<'a>>::Components);
-    type ComponentsRef = (<U1 as UnorderedData<'a>>::ComponentsRef,
-                          <U2 as UnorderedData<'a>>::ComponentsRef,
-                          <U3 as UnorderedData<'a>>::ComponentsRef);
-    type Storage = CombinedStorageRef3<
-                        <U1 as UnorderedData<'a>>::Storage,
-                        <U2 as UnorderedData<'a>>::Storage,
-                        <U3 as UnorderedData<'a>>::Storage>;
-    fn components_mask(world: &'a World) -> usize{
-        U1::components_mask(world) | U2::components_mask(world) | U3::components_mask(world)
-    }
-
-    fn into_iter(world: &'a ::World) -> Self::Iter {
-        CombinedUnorderedIter3{
-            // mask: Self::components_mask(world),
-            // entities: &world.entities,
-            ids: world.entities_for_mask(Self::components_mask(world)),
-            storage1: U1::storage(world),
-            _marker1: marker::PhantomData,
-            storage2: U2::storage(world),
-            _marker2: marker::PhantomData,
-            storage3: U3::storage(world),
-            _marker3: marker::PhantomData,
-            next: 0,
-        }
-    }
-
-    fn storage(world: &'a ::World) -> Self::Storage{
-        CombinedStorageRef3{
-            storage1: U1::storage(world),
-            storage2: U2::storage(world),
-            storage3: U3::storage(world),
-        }
-    }
-}
-
-
-impl<'a, U1: UnorderedDataLocal<'a>, U2: UnorderedDataLocal<'a>, U3: UnorderedDataLocal<'a>> UnorderedDataLocal<'a> for (U1,U2,U3)
-    where <U1 as UnorderedDataLocal<'a>>::Storage: 'a,
-          <U2 as UnorderedDataLocal<'a>>::Storage: 'a,
-          <U3 as UnorderedDataLocal<'a>>::Storage: 'a,
-          U1: 'a,
-          U2: 'a,
-          U3: 'a,
-{
-    type Iter = CombinedUnorderedIter3<'a,
-                    <U1 as UnorderedDataLocal<'a>>::ComponentsRef, <U1 as UnorderedDataLocal<'a>>::Storage,
-                    <U2 as UnorderedDataLocal<'a>>::ComponentsRef, <U2 as UnorderedDataLocal<'a>>::Storage,
-                    <U3 as UnorderedDataLocal<'a>>::ComponentsRef, <U3 as UnorderedDataLocal<'a>>::Storage>;
-    type Components = (<U1 as UnorderedDataLocal<'a>>::Components,
-                       <U2 as UnorderedDataLocal<'a>>::Components,
-                       <U3 as UnorderedDataLocal<'a>>::Components);
-    type ComponentsRef = (<U1 as UnorderedDataLocal<'a>>::ComponentsRef,
-                          <U2 as UnorderedDataLocal<'a>>::ComponentsRef,
-                          <U3 as UnorderedDataLocal<'a>>::ComponentsRef);
-    type Storage = CombinedStorageRef3<
-                        <U1 as UnorderedDataLocal<'a>>::Storage,
-                        <U2 as UnorderedDataLocal<'a>>::Storage,
-                        <U3 as UnorderedDataLocal<'a>>::Storage>;
-    fn components_mask(world: &'a World) -> usize{
-        U1::components_mask(world) | U2::components_mask(world) | U3::components_mask(world)
-    }
-
-    fn into_iter(world: &'a ::World) -> Self::Iter {
-        CombinedUnorderedIter3{
-            // mask: Self::components_mask(world),
-            // entities: &world.entities,
-            ids: world.entities_for_mask(Self::components_mask(world)),
-            storage1: U1::storage(world),
-            _marker1: marker::PhantomData,
-            storage2: U2::storage(world),
-            _marker2: marker::PhantomData,
-            storage3: U3::storage(world),
-            _marker3: marker::PhantomData,
-            next: 0,
-        }
-    }
-
-    fn storage(world: &'a ::World) -> Self::Storage{
-        CombinedStorageRef3{
-            storage1: U1::storage(world),
-            storage2: U2::storage(world),
-            storage3: U3::storage(world),
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
