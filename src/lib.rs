@@ -121,18 +121,6 @@ impl World{
         U::into_iter(self)
     }
 
-    pub(crate) fn iter<C: Component>(&self) -> <StorageReadGuard<<C as Component>::Storage> as IntoIter>::Iter
-        where for<'a> StorageReadGuard<'a, <C as Component>::Storage>: IntoIter
-    {
-        self.storage_thread_local::<C>().unwrap().into_iter()
-    }
-
-    pub(crate) fn iter_mut<C: Component>(&self) -> <StorageWriteGuard<<C as Component>::Storage> as IntoIterMut>::IterMut
-        where for<'a> StorageWriteGuard<'a, <C as Component>::Storage>: IntoIterMut
-    {
-        self.storage_thread_local_mut::<C>().unwrap().into_iter_mut()
-    }
-
     pub(crate) fn next_guid(&mut self) -> usize{
         self.next_guid.fetch_add(1, Ordering::SeqCst)
     }
@@ -141,17 +129,17 @@ impl World{
         self.entities.push(e)
     }
 
-    pub(crate) fn storage<C: ::Component>(&self) -> Option<StorageReadGuard<<C as ::Component>::Storage>> {
+    pub(crate) fn storage<C: ::Component>(&self) -> Option<RwLockReadGuard<<C as ::Component>::Storage>> {
         self.storages.get(&TypeId::of::<C>()).map(|s| {
             let s: &RwLock<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
-            StorageReadGuard::Sync(s.read().unwrap())
+            s.read().unwrap()
         })
     }
 
-    pub(crate) fn storage_mut<C: ::Component>(&self) -> Option<StorageWriteGuard<<C as ::Component>::Storage>> {
+    pub(crate) fn storage_mut<C: ::Component>(&self) -> Option<RwLockWriteGuard<<C as ::Component>::Storage>> {
         self.storages.get(&TypeId::of::<C>()).map(|s| {
             let s: &RwLock<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
-            StorageWriteGuard::Sync(s.write().unwrap())
+            s.write().unwrap()
         })
     }
 
@@ -163,7 +151,7 @@ impl World{
         if local.is_some(){
             local
         }else{
-            self.storage::<C>()
+            self.storage::<C>().map(|sync| StorageReadGuard::Sync(sync))
         }
     }
 
@@ -175,7 +163,7 @@ impl World{
         if local.is_some(){
             local
         }else{
-            self.storage_mut::<C>()
+            self.storage_mut::<C>().map(|sync| StorageWriteGuard::Sync(sync))
         }
     }
 
@@ -327,6 +315,13 @@ impl<'a, T> IntoIter for StorageReadGuard<'a, DenseVec<T>>{
     }
 }
 
+impl<'a, T> IntoIter for RwLockReadGuard<'a, DenseVec<T>>{
+    type Iter = DenseIter<'a, T>;
+    fn into_iter(self) -> DenseIter<'a, T>{
+        StorageReadGuard::Sync(self).into_iter()
+    }
+}
+
 impl<'a, T> IntoIterMut for StorageWriteGuard<'a, DenseVec<T>>{
     type IterMut = DenseIterMut<'a, T>;
     fn into_iter_mut(mut self) -> DenseIterMut<'a, T>{
@@ -336,6 +331,13 @@ impl<'a, T> IntoIterMut for StorageWriteGuard<'a, DenseVec<T>>{
             _guard: self,
             _marker: marker::PhantomData,
         }
+    }
+}
+
+impl<'a, T> IntoIterMut for RwLockWriteGuard<'a, DenseVec<T>>{
+    type IterMut = DenseIterMut<'a, T>;
+    fn into_iter_mut(self) -> DenseIterMut<'a, T>{
+        StorageWriteGuard::Sync(self).into_iter_mut()
     }
 }
 
@@ -413,12 +415,12 @@ pub struct Write<'a, T: 'a + ComponentSync>{
 }
 
 pub struct StorageRead<'a, S: Storage<T> + 'a, T: 'a + ComponentSync>{
-    storage: StorageReadGuard<'a, S>,
+    storage: RwLockReadGuard<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
 pub struct StorageWrite<'a, S: Storage<T> + 'a, T: 'a + ComponentSync>{
-    storage: RefCell<StorageWriteGuard<'a, S>>,
+    storage: RefCell<RwLockWriteGuard<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
@@ -449,9 +451,9 @@ pub trait UnorderedData<'a>{
 }
 
 impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Read<'a,T>
-    where for<'b> StorageReadGuard<'b, <T as Component>::Storage>: IntoIter
+    where for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoIter
 {
-    type Iter = <StorageReadGuard<'a, <T as Component>::Storage> as IntoIter>::Iter;
+    type Iter = <RwLockReadGuard<'a, <T as Component>::Storage> as IntoIter>::Iter;
     type Components = T;
     type ComponentsRef = &'a T;
     type Storage = StorageRead<'a, <T as Component>::Storage, Self::Components>;
@@ -460,7 +462,7 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Read<'a,T>
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
-        world.iter::<T>()
+        world.storage::<T>().unwrap().into_iter()
     }
 
     fn storage(world: &'a ::World) -> Self::Storage{
@@ -472,9 +474,9 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Read<'a,T>
 }
 
 impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Write<'a,T>
-    where for<'b> StorageWriteGuard<'b, <T as Component>::Storage>: IntoIterMut
+    where for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoIterMut
 {
-    type Iter = <StorageWriteGuard<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
+    type Iter = <RwLockWriteGuard<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
     type Components = T;
     type ComponentsRef = &'a mut T;
     type Storage = StorageWrite<'a, <T as Component>::Storage, Self::Components>;
@@ -483,7 +485,7 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Write<'a,T>
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
-        world.iter_mut::<T>()
+        world.storage_mut::<T>().unwrap().into_iter_mut()
     }
 
     fn storage(world: &'a ::World) -> Self::Storage{
@@ -552,7 +554,7 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for ReadLocal<'a,T
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
-        world.iter::<T>()
+        world.storage_thread_local::<T>().unwrap().into_iter()
     }
 
     fn storage(world: &'a ::World) -> Self::Storage{
@@ -575,7 +577,7 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for WriteLocal<'a,
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
-        world.iter_mut::<T>()
+        world.storage_thread_local_mut::<T>().unwrap().into_iter_mut()
     }
 
     fn storage(world: &'a ::World) -> Self::Storage{
@@ -778,38 +780,6 @@ impl<'a, U1: UnorderedData<'a>, U2: UnorderedData<'a>, U3: UnorderedData<'a>> Un
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn insert_iter() {
-        #[derive(Debug,PartialEq,Copy,Clone)]
-        struct Pos{
-            x: f32,
-            y: f32,
-        }
-
-        impl ::Component for Pos{
-            type Storage = ::DenseVec<Pos>;
-        }
-
-        let mut world = ::World::new();
-        world.register::<Pos>();
-        world.create_entity()
-            .add(Pos{x: 1., y: 1.})
-            .build();
-        world.create_entity()
-            .add(Pos{x: 2., y: 2.})
-            .build();
-        world.create_entity()
-            .add(Pos{x: 3., y: 3.})
-            .build();
-
-        assert_eq!(world.iter::<Pos>().count(), 3);
-        let mut iter = world.iter::<Pos>();
-        assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
-        assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
-        assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
-        assert_eq!(iter.next(), None);
-    }
-
     #[test]
     fn insert_read() {
         #[derive(Debug,PartialEq,Copy,Clone)]
