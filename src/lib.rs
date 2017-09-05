@@ -124,13 +124,13 @@ impl World{
     pub(crate) fn iter<C: Component>(&self) -> <StorageReadGuard<<C as Component>::Storage> as IntoIter>::Iter
         where for<'a> StorageReadGuard<'a, <C as Component>::Storage>: IntoIter
     {
-        self.storage_thread_local::<C>().unwrap().iter()
+        self.storage_thread_local::<C>().unwrap().into_iter()
     }
 
     pub(crate) fn iter_mut<C: Component>(&self) -> <StorageWriteGuard<<C as Component>::Storage> as IntoIterMut>::IterMut
         where for<'a> StorageWriteGuard<'a, <C as Component>::Storage>: IntoIterMut
     {
-        self.storage_thread_local_mut::<C>().unwrap().iter_mut()
+        self.storage_thread_local_mut::<C>().unwrap().into_iter_mut()
     }
 
     pub(crate) fn next_guid(&mut self) -> usize{
@@ -272,12 +272,12 @@ pub trait Storage<T>{
 
 pub trait IntoIter{
     type Iter: Iterator;
-    fn iter(self) -> Self::Iter;
+    fn into_iter(self) -> Self::Iter;
 }
 
 pub trait IntoIterMut{
     type IterMut: Iterator;
-    fn iter_mut(self) -> Self::IterMut;
+    fn into_iter_mut(self) -> Self::IterMut;
 }
 
 pub struct DenseVec<T>{
@@ -317,7 +317,7 @@ impl<T> Storage<T> for DenseVec<T>{
 
 impl<'a, T> IntoIter for StorageReadGuard<'a, DenseVec<T>>{
     type Iter = DenseIter<'a, T>;
-    fn iter(self) -> DenseIter<'a, T>{
+    fn into_iter(self) -> DenseIter<'a, T>{
         DenseIter{
             ptr: self.storage.as_ptr(),
             end: unsafe{ self.storage.as_ptr().offset(self.storage.len() as isize) },
@@ -329,7 +329,7 @@ impl<'a, T> IntoIter for StorageReadGuard<'a, DenseVec<T>>{
 
 impl<'a, T> IntoIterMut for StorageWriteGuard<'a, DenseVec<T>>{
     type IterMut = DenseIterMut<'a, T>;
-    fn iter_mut(mut self) -> DenseIterMut<'a, T>{
+    fn into_iter_mut(mut self) -> DenseIterMut<'a, T>{
         DenseIterMut{
             ptr: self.storage.as_mut_ptr(),
             end: unsafe{ self.storage.as_mut_ptr().offset(self.storage.len() as isize) },
