@@ -3,7 +3,6 @@
 #![feature(conservative_impl_trait)]
 
 extern crate rayon;
-// use rayon::prelude::*;
 
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
