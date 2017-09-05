@@ -10,8 +10,9 @@ pub const N_POS_VEL: usize = 1000;
 /// Entities with position component only.
 pub const N_POS: usize = 9000;
 
-type BenchStorage<T> = ::DenseVec<T>;
-//type BenchStorage<T> = Vec<T>;
+// type BenchStorage<T> = ::DenseVec<T>;
+type BenchStorage<T> = ::VecStorage<T>;
+// type BenchStorage<T> = ::Tree<T>;
 //type BenchStorage<T> = HashMap<usize,T>;
 
 // Components

@@ -16,12 +16,17 @@ pub use storage::{Read, Write, Storage, IntoIter};
 pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder};
 pub use component::{Component, ComponentSync, ComponentThreadLocal};
 pub use dense_vec::DenseVec;
+pub use tree::Tree;
+pub use vec::VecStorage;
 
 mod sync;
 mod entity;
 mod component;
 mod storage;
 mod dense_vec;
+mod tree;
+mod idtree;
+mod vec;
 
 #[cfg(test)]
 mod tests;
