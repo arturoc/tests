@@ -1,9 +1,8 @@
 extern crate test;
 extern crate rayon;
-use rayon::prelude::*;
 
 use self::test::Bencher;
-use std::collections::HashMap;
+// use std::collections::HashMap;
 
 type BenchStorage<T> = ::DenseVec<T>;
 //type BenchStorage<T> = Vec<T>;
@@ -46,7 +45,7 @@ fn build() -> ::World {
 
     // setup entities
     {
-        for i in 0..N {
+        for _ in 0..N {
             w.create_entity().add(R { x: 0.0 }).build();
             w.create_entity().add(W1 { x: 0.0 }).build();
             w.create_entity().add(W2 { x: 0.0 }).build();
@@ -75,7 +74,7 @@ fn bench_build(b: &mut Bencher) {
 
 #[bench]
 fn bench_update(b: &mut Bencher) {
-    let mut world = build();
+    let world = build();
 
     b.iter(|| {
         let entities1 = world.entities();

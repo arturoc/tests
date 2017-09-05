@@ -2,7 +2,7 @@
 
 extern crate test;
 use self::test::Bencher;
-use std::collections::HashMap;
+// use std::collections::HashMap;
 
 /// Entities with velocity and position component.
 pub const N_POS_VEL: usize = 1000;
@@ -88,7 +88,7 @@ fn bench_build(b: &mut Bencher) {
 
 #[bench]
 fn bench_update(b: &mut Bencher) {
-    let mut world = build();
+    let world = build();
 
     b.iter(||{
         let entities = world.entities_thread_local();
