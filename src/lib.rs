@@ -23,12 +23,13 @@ mod parallel_benches;
 pub struct World{
     storages: HashMap<TypeId, Box<Any>>,
     storages_thread_local: HashMap<TypeId, Box<Any>>,
+
     next_guid: AtomicUsize,
-    entities: Vec<Entity>,
+    entities: RwLock<Vec<Entity>>,
+    entities_index_per_mask: RwLock<HashMap<usize, Vec<usize>>>,
+
     next_component_mask: AtomicUsize,
     components_mask_index: HashMap<TypeId, usize>,
-
-    entities_index_per_mask: RwLock<HashMap<usize, Vec<usize>>>,
 }
 
 impl World{
@@ -38,7 +39,7 @@ impl World{
             storages_thread_local: HashMap::new(),
             next_guid: AtomicUsize::new(0),
             next_component_mask: AtomicUsize::new(1),
-            entities: Vec::new(),
+            entities: RwLock::new(Vec::new()),
             components_mask_index: HashMap::new(),
             entities_index_per_mask: RwLock::new(HashMap::new()),
         }
@@ -65,7 +66,7 @@ impl World{
     }
 
     pub fn create_entity(&mut self) -> EntityBuilder{
-        self.entities_index_per_mask.write().unwrap().clear();
+        self.entities_index_per_mask.get_mut().unwrap().clear();
         EntityBuilder::new(self)
     }
 
@@ -82,7 +83,7 @@ impl World{
     }
 
     pub(crate) fn push_entity(&mut self, e: ::Entity){
-        self.entities.push(e)
+        self.entities.get_mut().unwrap().push(e)
     }
 
     pub(crate) fn storage<C: ::Component>(&self) -> Option<RwLockReadGuard<<C as ::Component>::Storage>> {
@@ -129,7 +130,7 @@ impl World{
 
     pub(crate) fn entities_for_mask(&self, mask: usize) -> IndexGuard{
         if !self.entities_index_per_mask.read().unwrap().contains_key(&mask){
-            let entities = self.entities.iter().filter_map(|e|
+            let entities = self.entities.read().unwrap().iter().filter_map(|e|
                 if e.components_mask & mask == mask{
                     Some(e.guid())
                 }else{
