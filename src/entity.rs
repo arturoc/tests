@@ -2,11 +2,15 @@ use std::any::TypeId;
 use std::mem;
 
 use ::World;
+use ::Component;
 use ::ComponentSync;
 use ::ComponentThreadLocal;
 use ::UnorderedData;
 use ::UnorderedDataLocal;
+use ::OrderedData;
+use ::OrderedDataLocal;
 use ::Storage;
+use ::HierarchicalStorage;
 
 #[derive(Clone,Copy,Eq,PartialEq,Debug)]
 pub struct Entity {
@@ -70,6 +74,20 @@ impl<'a> EntityBuilder<'a>{
         self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
         self
     }
+
+    pub fn add_child<C: ComponentSync>(&mut self, parent: Entity, component: C) -> &mut Self
+        where <C as Component>::Storage: HierarchicalStorage<C>{
+    {
+            let storage = self.world.storage_mut::<C>();
+            if let Some(mut storage) = storage{
+                unsafe{ storage.insert_child(parent.guid, self.guid, component) }
+            }else{
+                panic!("Trying to add component of type {} without registering first", "type_name");//C::type_name())
+            }
+        };
+        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self
+    }
 }
 
 
@@ -87,6 +105,10 @@ impl<'a> Entities<'a>{
     }
 
     pub fn iter_for<S: UnorderedData<'a> + 'a>(&self) -> <S as UnorderedData<'a>>::Iter{
+        S::into_iter(self.world)
+    }
+
+    pub fn ordered_iter_for<S: OrderedData<'a> + 'a>(&self) -> <S as OrderedData<'a>>::Iter{
         S::into_iter(self.world)
     }
 
@@ -108,6 +130,10 @@ impl<'a> EntitiesThreadLocal<'a>{
     }
 
     pub fn iter_for<S: UnorderedDataLocal<'a> + 'a>(&self) -> <S as UnorderedDataLocal<'a>>::Iter{
+        S::into_iter(self.world)
+    }
+
+    pub fn ordered_iter_for<S: OrderedDataLocal<'a> + 'a>(&self) -> <S as OrderedDataLocal<'a>>::Iter{
         S::into_iter(self.world)
     }
 

@@ -4,9 +4,10 @@ extern crate rayon;
 use self::test::Bencher;
 // use std::collections::HashMap;
 
-// type BenchStorage<T> = ::DenseVec<T>;
-type BenchStorage<T> = ::VecStorage<T>;
+type BenchStorage<T> = ::DenseVec<T>;
+// type BenchStorage<T> = ::VecStorage<T>;
 // type BenchStorage<T> = HashMap<usize,T>;
+// type BenchStorage<T> = ::Forest<T>;
 
 pub const N: usize = 10000;
 

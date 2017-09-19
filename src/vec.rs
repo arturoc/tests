@@ -20,6 +20,13 @@ impl<T> Storage<T> for VecStorage<T>{
         }
     }
 
+    fn with_capacity(capacity: usize) -> VecStorage<T>{
+        VecStorage{
+            storage: Vec::with_capacity(capacity),
+            ids: Vec::with_capacity(capacity),
+        }
+    }
+
     fn insert(&mut self, guid: usize, t: T){
         if self.storage.capacity() < guid + 1{
             let diff = guid + 1 - self.storage.len();

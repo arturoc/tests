@@ -12,11 +12,11 @@ use std::slice;
 
 use sync::*;
 use storage::*;
-pub use storage::{Read, Write, Storage, IntoIter};
+pub use storage::{Read, Write, Storage, IntoIter, IntoIterMut, HierarchicalRead, HierarchicalWrite, HierarchicalStorage, IntoOrderedIter, IntoOrderedIterMut};
 pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder};
 pub use component::{Component, ComponentSync, ComponentThreadLocal};
 pub use dense_vec::DenseVec;
-pub use tree::Tree;
+pub use forest::Forest;
 pub use vec::VecStorage;
 
 mod sync;
@@ -24,7 +24,7 @@ mod entity;
 mod component;
 mod storage;
 mod dense_vec;
-mod tree;
+mod forest;
 mod idtree;
 mod vec;
 
@@ -35,6 +35,8 @@ mod tests;
 mod benches;
 #[cfg(feature="unstable")]
 mod parallel_benches;
+#[cfg(feature="unstable")]
+mod hierarchical_benches;
 
 pub struct World{
     storages: HashMap<TypeId, Box<Any>>,
@@ -43,6 +45,7 @@ pub struct World{
     next_guid: AtomicUsize,
     entities: Vec<Entity>, // Doesn't need lock cause never accesed mut from Entities?
     entities_index_per_mask: RwLock<HashMap<usize, Vec<usize>>>,
+    ordered_entities_index_per_mask: RwLock<HashMap<TypeId, HashMap<usize, Vec<usize>>>>,
 
     next_component_mask: AtomicUsize,
     components_mask_index: HashMap<TypeId, usize>,
@@ -58,6 +61,7 @@ impl World{
             entities: Vec::new(),
             components_mask_index: HashMap::new(),
             entities_index_per_mask: RwLock::new(HashMap::new()),
+            ordered_entities_index_per_mask: RwLock::new(HashMap::new()),
         }
     }
 
@@ -152,6 +156,54 @@ impl World{
                 }else{
                     None
                 }).collect();
+            self.entities_index_per_mask.write().unwrap().insert(mask, entities);
+        }
+        let _index_guard = self.entities_index_per_mask.read().unwrap();
+        let ptr = _index_guard[&mask].as_ptr();
+        let len = _index_guard[&mask].len();
+        let index = unsafe{ slice::from_raw_parts(ptr, len) };
+        IndexGuard{
+            _index_guard,
+            index,
+        }
+    }
+
+    pub(crate) fn ordered_entities_for<'a, C: Component>(&self, mask: usize) -> IndexGuard
+        where <C as Component>::Storage: ::HierarchicalStorage<C>{
+        if !self.ordered_entities_index_per_mask.write().unwrap().entry(TypeId::of::<<C as ::Component>::Storage>())
+            .or_insert_with(|| HashMap::new())
+            .contains_key(&mask){
+            let entities = self.storage::<C>()
+                .expect(&format!("Trying to use non registered type {}", "C::type_name()"))
+                .ordered_ids()
+                .into_iter()
+                .map(|i| *i)
+                .filter(|i| self.entities[*i].components_mask & mask == mask)
+                .collect();
+            self.entities_index_per_mask.write().unwrap().insert(mask, entities);
+        }
+        let _index_guard = self.entities_index_per_mask.read().unwrap();
+        let ptr = _index_guard[&mask].as_ptr();
+        let len = _index_guard[&mask].len();
+        let index = unsafe{ slice::from_raw_parts(ptr, len) };
+        IndexGuard{
+            _index_guard,
+            index,
+        }
+    }
+
+    pub(crate) fn thread_local_ordered_entities_for<'a, C: Component>(&self, mask: usize) -> IndexGuard
+        where <C as Component>::Storage: ::HierarchicalStorage<C>{
+        if !self.ordered_entities_index_per_mask.write().unwrap().entry(TypeId::of::<<C as ::Component>::Storage>())
+            .or_insert_with(|| HashMap::new())
+            .contains_key(&mask){
+            let entities = self.storage_thread_local::<C>()
+                .expect(&format!("Trying to use non registered type {}", "C::type_name()"))
+                .ordered_ids()
+                .into_iter()
+                .map(|i| *i)
+                .filter(|i| self.entities[*i].components_mask & mask == mask)
+                .collect();
             self.entities_index_per_mask.write().unwrap().insert(mask, entities);
         }
         let _index_guard = self.entities_index_per_mask.read().unwrap();

@@ -4,10 +4,12 @@
 #![allow(dead_code)]
 
 use std::mem;
-use std::ptr;
 use std::ops::{Index, IndexMut};
 use std::ops::{Deref, DerefMut};
-use std::collections::LinkedList;
+// use std::iter::Filter;
+use std::slice;
+use ::DenseVec;
+use ::Storage;
 
 impl<T> Deref for Node<T>{
     type Target = T;
@@ -27,7 +29,7 @@ impl<T> DerefMut for Node<T>{
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub struct NodeId {
     index: usize,  // FIXME: use NonZero to optimize the size of Option<NodeId>
-    generation: usize,
+    // generation: usize,
 }
 
 #[derive(Clone)]
@@ -39,7 +41,7 @@ pub struct Node<T> {
     next_sibling: Option<NodeId>,
     first_child: Option<NodeId>,
     last_child: Option<NodeId>,
-    alive: bool,
+    // alive: bool,
 
     id: NodeId,
     pub data: T,
@@ -51,6 +53,16 @@ impl<T> Node<T>{
     }
 }
 
+// #[inline]
+// fn is_alive<T>(node: &&Node<T>) -> bool{
+//     node.alive
+// }
+//
+// #[inline]
+// fn is_alive_mut<T>(node: &&mut Node<T>) -> bool{
+//     node.alive
+// }
+
 impl<T> From<Node<T>> for NodeId{
     fn from(node: Node<T>) -> NodeId{
         node.id
@@ -59,64 +71,79 @@ impl<T> From<Node<T>> for NodeId{
 
 #[derive(Clone)]
 pub struct Arena<T> {
-    nodes: Vec<Node<T>>,
-    free: LinkedList<usize>,
+    nodes: DenseVec<Node<T>>,
+    next_id: usize,
 }
 
 impl<T> Arena<T> {
     pub fn new() -> Arena<T> {
         Arena {
-            nodes: Vec::new(),
-            free: LinkedList::new(),
+            nodes: DenseVec::new(),
+            next_id: 0,
         }
     }
 
     pub fn with_capacity(capacity: usize) -> Arena<T> {
         Arena {
-            nodes: Vec::with_capacity(capacity),
-            free: LinkedList::new(),
+            nodes: DenseVec::with_capacity(capacity),
+            next_id: 0,
         }
     }
 
     /// Create a new node from its associated data.
     pub fn new_node(&mut self, data: T) -> NodeIdMut<T>{
-        let next_free = self.free.pop_front();
-        let id;
-        if let Some(idx) = next_free{
-            id = NodeId {
-                index: idx,
-                generation: self.nodes[idx].id.generation + 1
-            };
-            mem::forget(mem::replace(&mut self.nodes[idx], Node {
-                parent: None,
-                first_child: None,
-                last_child: None,
-                previous_sibling: None,
-                next_sibling: None,
-                alive: true,
-                data: data,
-                id: id,
-            }));
-        }else{
-            let next_index = self.nodes.len();
-            id = NodeId {
-                index: next_index,
-                generation: 0
-            };
-            self.nodes.push(Node {
-                parent: None,
-                first_child: None,
-                last_child: None,
-                previous_sibling: None,
-                next_sibling: None,
-                alive: true,
-                data: data,
-                id: id,
-            });
-        }
+        // let next_free = self.free.pop_front();
+        // let id;
+        // if let Some(idx) = next_free{
+        //     id = NodeId {
+        //         index: idx,
+        //         generation: self.nodes.get(idx).id.generation + 1
+        //     };
+        //     mem::forget(mem::replace(&mut self.nodes[idx], Node {
+        //         parent: None,
+        //         first_child: None,
+        //         last_child: None,
+        //         previous_sibling: None,
+        //         next_sibling: None,
+        //         alive: true,
+        //         data: data,
+        //         id: id,
+        //     }));
+        // }else{
+        //     let next_index = self.nodes.len();
+        //     id = NodeId {
+        //         index: next_index,
+        //         generation: 0
+        //     };
+        //     self.nodes.push(Node {
+        //         parent: None,
+        //         first_child: None,
+        //         last_child: None,
+        //         previous_sibling: None,
+        //         next_sibling: None,
+        //         alive: true,
+        //         data: data,
+        //         id: id,
+        //     });
+        // }
+
+        let id = self.next_id;
+        let node_id = NodeId {
+            index: self.next_id,
+        };
+        self.next_id += 1;
+        self.nodes.insert(id, Node {
+            parent: None,
+            first_child: None,
+            last_child: None,
+            previous_sibling: None,
+            next_sibling: None,
+            data: data,
+            id: node_id,
+        });
 
         NodeIdMut{
-            id,
+            id: node_id,
             arena: self
         }
     }
@@ -135,62 +162,96 @@ impl<T> Arena<T> {
         }
     }
 
-    pub fn contains(&self, id: NodeId) -> bool{
-        self.nodes[id.index].id.generation == id.generation &&
-        self.nodes[id.index].alive
-    }
+    // pub fn contains(&self, id: NodeId) -> bool{
+    //     self.nodes.get(id.index).id.generation == id.generation &&
+    //     self.nodes[id.index].alive
+    // }
 
-    pub fn remove<N: Into<NodeId>>(&mut self, id: N) -> Result<(),()>{
-        let id = id.into();
-        if self.contains(id){
-            if self.nodes[id.index].parent().is_some(){
-                for c in id.children(self).collect::<Vec<_>>(){
-                    id.insert_after(c, self);
-                }
-            }else{
-                for c in id.children(self).collect::<Vec<_>>(){
-                    c.detach(self);
-                }
-            }
-            id.detach(self);
-            unsafe{ ptr::drop_in_place(&mut self.nodes[id.index].data) };
-            self.nodes[id.index].alive = false;
-            self.free.push_back(id.index);
-            Ok(())
-        }else{
-            Err(())
+    // pub fn remove<N: Into<NodeId>>(&mut self, id: N) -> Result<(),()>{
+    //     let id = id.into();
+    //     if self.contains(id){
+    //         if self.nodes[id.index].parent().is_some(){
+    //             for c in id.children(self).collect::<Vec<_>>(){
+    //                 id.insert_after(c, self);
+    //             }
+    //         }else{
+    //             for c in id.children(self).collect::<Vec<_>>(){
+    //                 c.detach(self);
+    //             }
+    //         }
+    //         id.detach(self);
+    //         unsafe{ ptr::drop_in_place(&mut self.nodes[id.index].data) };
+    //         self.nodes[id.index].alive = false;
+    //         self.free.push_back(id.index);
+    //         Ok(())
+    //     }else{
+    //         Err(())
+    //     }
+    // }
+    //
+    // pub fn remove_tree<N: Into<NodeId>>(&mut self, id: N) -> Result<(),()>{
+    //     let id = id.into();
+    //     if self.contains(id){
+    //         if self.nodes[id.index].first_child().is_some(){
+    //             for c in id.children(self).collect::<Vec<_>>(){
+    //                 self.remove_tree(c)?;
+    //             }
+    //         }else{
+    //             self.remove(id)?;
+    //         }
+    //         Ok(())
+    //     }else{
+    //         Err(())
+    //     }
+    // }
+
+    pub fn all_nodes(&self) -> AllNodes<T>{
+        AllNodes{
+            it: self.nodes.iter()
         }
     }
 
-    pub fn remove_tree<N: Into<NodeId>>(&mut self, id: N) -> Result<(),()>{
-        let id = id.into();
-        if self.contains(id){
-            if self.nodes[id.index].first_child().is_some(){
-                for c in id.children(self).collect::<Vec<_>>(){
-                    self.remove_tree(c)?;
-                }
-            }else{
-                self.remove(id)?;
-            }
-            Ok(())
-        }else{
-            Err(())
+    pub fn all_nodes_mut(&mut self) -> AllNodesMut<T>{
+        AllNodesMut{
+            it: self.nodes.iter_mut()
         }
-    }
-
-    pub fn all_nodes<'a>(&'a self) -> Box<Iterator<Item=&'a Node<T>> + 'a>{
-        Box::new(self.nodes.iter().filter(|node| node.alive))
-    }
-
-    pub fn all_nodes_mut<'a>(&'a mut self) -> Box<Iterator<Item=&'a mut Node<T>> + 'a>{
-        Box::new(self.nodes.iter_mut().filter(|node| node.alive))
     }
 
     pub fn into_vec(self) -> Vec<Node<T>>{
-        self.nodes.into_iter().filter(|n| n.alive).collect()
+        self.nodes.into_iter()/*.filter(|n| n.alive)*/.collect()
+    }
+
+    pub fn len(&self) -> usize{
+        self.nodes.len()
     }
 }
 
+pub struct AllNodes<'a, T: 'a>{
+    //t: Filter<slice::Iter<'a, Node<T>>, fn (&&Node<T>) -> bool>
+    it: slice::Iter<'a, Node<T>>
+}
+
+impl<'a, T: 'a> Iterator for AllNodes<'a, T>{
+    type Item = &'a Node<T>;
+    #[inline]
+    fn next(&mut self) -> Option<&'a Node<T>>{
+        self.it.next()
+    }
+}
+
+
+pub struct AllNodesMut<'a, T: 'a>{
+    //it: Filter<slice::IterMut<'a, Node<T>>, fn (&&mut Node<T>) -> bool>
+    it: slice::IterMut<'a, Node<T>>
+}
+
+impl<'a, T: 'a> Iterator for AllNodesMut<'a, T>{
+    type Item = &'a mut Node<T>;
+    #[inline]
+    fn next(&mut self) -> Option<&'a mut Node<T>>{
+        self.it.next()
+    }
+}
 
 pub struct NodeIdMut<'a, T: 'a>{
     id: NodeId,
@@ -606,19 +667,32 @@ impl<T> GetPairMut<T> for Vec<T> {
     }
 }
 
+impl<T> GetPairMut<T> for DenseVec<T> {
+    fn get_pair_mut(&mut self, a: usize, b: usize, same_index_error_message: &'static str)
+                    -> (&mut T, &mut T) {
+        if a == b {
+            panic!(same_index_error_message)
+        }
+        unsafe {
+            let self2 = mem::transmute_copy::<&mut DenseVec<T>, &mut DenseVec<T>>(&self);
+            (self.get_mut(a), self2.get_mut(b))
+        }
+    }
+}
+
 impl<T> Index<NodeId> for Arena<T> {
     type Output = Node<T>;
 
     fn index(&self, node: NodeId) -> &Node<T> {
-        assert!(self.contains(node));
-        &self.nodes[node.index]
+        // assert!(self.contains(node));
+        unsafe{self.nodes.get(node.index)}
     }
 }
 
 impl<T> IndexMut<NodeId> for Arena<T> {
     fn index_mut(&mut self, node: NodeId) -> &mut Node<T> {
-        assert!(self.contains(node));
-        &mut self.nodes[node.index]
+        // assert!(self.contains(node));
+        unsafe{self.nodes.get_mut(node.index)}
     }
 }
 

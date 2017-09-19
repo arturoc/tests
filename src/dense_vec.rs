@@ -2,10 +2,12 @@
 use std::marker;
 use std::ptr;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
+use std::slice;
 
 use storage::{Storage, IntoIter, IntoIterMut};
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 
+#[derive(Clone)]
 pub struct DenseVec<T>{
     storage: Vec<T>,
     index: Vec<usize>,
@@ -16,6 +18,13 @@ impl<T> Storage<T> for DenseVec<T>{
         DenseVec{
             storage: vec![],
             index: vec![],
+        }
+    }
+
+    fn with_capacity(capacity: usize) -> Self{
+        DenseVec{
+            storage: Vec::with_capacity(capacity),
+            index: Vec::with_capacity(capacity),
         }
     }
 
@@ -38,6 +47,28 @@ impl<T> Storage<T> for DenseVec<T>{
 
     unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
         self.storage.get_unchecked_mut(*self.index.get_unchecked(guid))
+    }
+}
+
+impl<T> DenseVec<T>{
+    pub fn len(&self) -> usize{
+        self.index.len()
+    }
+
+    pub fn iter(&self) -> slice::Iter<T>{
+        self.storage.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> slice::IterMut<T>{
+        self.storage.iter_mut()
+    }
+}
+
+impl<T> IntoIterator for DenseVec<T>{
+    type Item = T;
+    type IntoIter = ::std::vec::IntoIter<T>;
+    fn into_iter(self) -> Self::IntoIter{
+        self.storage.into_iter()
     }
 }
 
