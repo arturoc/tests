@@ -161,7 +161,7 @@ impl<'a, T> IntoOrderedIter for ReadGuardRef<'a, Forest<T>>{
     fn into_ordered_iter(self) -> Self::OrderedIter{
         self.ordered_ids();
         ForestHierarchicalIter{
-            current: if self.roots.is_empty(){ None } else { Some(0) },
+            // current: if self.roots.is_empty(){ None } else { Some(0) },
             //iter: if self.roots.is_empty(){ None } else { Some(self.roots[0].descendants(unsafe{mem::transmute::<&idtree::Arena<T>, &idtree::Arena<T>>(&self.arena)})) },
             forest: self,
             next: 0,
@@ -222,7 +222,7 @@ impl<'a, T: 'a> Iterator for ForestHierarchicalIdsIter<'a, T>{
 
 pub struct ForestHierarchicalIter<'a, T: 'a>{
     forest: ReadGuardRef<'a, Forest<T>>,
-    current: Option<usize>,
+    // current: Option<usize>,
     next: usize,
     //iter: Option<idtree::Descendants<'a, T>>,
 }
@@ -251,7 +251,7 @@ impl<'a, T> IntoOrderedIterMut for WriteGuardRef<'a, Forest<T>>{
     fn into_ordered_iter_mut(self) -> Self::OrderedIterMut{
         self.ordered_ids();
         ForestHierarchicalIterMut{
-            current: if self.roots.is_empty(){ None } else { Some(0) },
+            // current: if self.roots.is_empty(){ None } else { Some(0) },
             // iter: if self.roots.is_empty(){ None } else { Some(self.roots[0].descendants(unsafe{mem::transmute::<&idtree::Arena<T>, &idtree::Arena<T>>(&self.arena)})) },
             next: 0,
             forest: self,
@@ -268,7 +268,7 @@ impl<'a, T> IntoOrderedIterMut for RwLockWriteGuard<'a, Forest<T>>{
 
 pub struct ForestHierarchicalIterMut<'a, T: 'a>{
     forest: WriteGuardRef<'a, Forest<T>>,
-    current: Option<usize>,
+    // current: Option<usize>,
     // iter: Option<idtree::Descendants<'a, T>>,
     next: usize,
 }
