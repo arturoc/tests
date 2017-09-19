@@ -257,11 +257,11 @@ fn hierarchical_insert_read_write() {
         .add_child(e1, Pos{x: 3., y: 3.})
         .add_child(e1, GlobalPos{x: 3., y: 3.})
         .build();
-    let e4 = world.create_entity()
+    let _e4 = world.create_entity()
         .add_child(e2, Pos{x: 4., y: 4.})
         .add_child(e2, GlobalPos{x: 4., y: 4.})
         .build();
-    let e5 = world.create_entity()
+    let _e5 = world.create_entity()
         .add_child(e3, Pos{x: 5., y: 5.})
         .add_child(e3, GlobalPos{x: 5., y: 5.})
         .build();
