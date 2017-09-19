@@ -13,7 +13,7 @@ pub const N_POS: usize = 9000;
 // type BenchStorage<T> = ::DenseVec<T>;
 type BenchStorage<T> = ::VecStorage<T>;
 // type BenchStorage<T> = ::Tree<T>;
-//type BenchStorage<T> = HashMap<usize,T>;
+// type BenchStorage<T> = HashMap<usize,T>;
 
 // Components
 #[derive(Copy, Clone, Debug, PartialEq)]
