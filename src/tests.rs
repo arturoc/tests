@@ -781,10 +781,56 @@ fn insert_read_one_to_n() {
     assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
 
     let mut iter = entities.iter_for::<::Read<Pos>>();
-    assert_eq!(iter.count(), 3);
+    for poss in iter{
+        assert_eq!(poss[0], Pos{x: poss.len() as f32, y: poss.len() as f32});
+    }
+}
+
+
+#[test]
+fn insert_read_write_one_to_n() {
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Pos{
+        x: f32,
+        y: f32,
+    }
+
+    impl ::Component for Pos{
+        type Storage = ::DenseOneToNVec<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
+    }
+
+    impl ::OneToNComponent for Pos{}
+
+    let mut world = ::World::new();
+    world.register::<Pos>();
+    world.create_entity()
+        .add_slice(&[Pos{x: 1., y: 1.}])
+        .build();
+    world.create_entity()
+        .add_slice(&[Pos{x: 2., y: 2.}, Pos{x: 2., y: 2.}])
+        .build();
+    world.create_entity()
+        .add_slice(&[Pos{x: 3., y: 3.}, Pos{x: 3., y: 3.}, Pos{x: 3., y: 3.}])
+        .build();
+
+    let entities = world.entities();
+    assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
+
+
+    let mut iter = entities.iter_for::<::Write<Pos>>();
+    for poss in iter{
+        for pos in poss{
+            pos.x += 1.;
+            pos.y += 1.;
+        }
+    }
+
 
     let mut iter = entities.iter_for::<::Read<Pos>>();
     for poss in iter{
-        assert_eq!(poss[0], Pos{x: poss.len() as f32, y: poss.len() as f32});
+        assert_eq!(poss[0], Pos{x: poss.len() as f32 + 1., y: poss.len() as f32 + 1.});
     }
 }
