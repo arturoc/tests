@@ -14,7 +14,9 @@ use std::mem;
 
 use sync::*;
 use storage::*;
-pub use storage::{Read, Write, Storage, IntoIter, IntoIterMut, HierarchicalRead, HierarchicalWrite, HierarchicalStorage, IntoOrderedIter, IntoOrderedIterMut};
+pub use storage::{Read, Write, Storage, IntoIter, IntoIterMut,
+     HierarchicalRead, HierarchicalWrite, HierarchicalStorage,
+     IntoOrderedIter, IntoOrderedIterMut, ReadAndParent, WriteAndParent};
 pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder};
 pub use component::{Component, ComponentSync, ComponentThreadLocal};
 pub use dense_vec::DenseVec;
