@@ -2,6 +2,7 @@ use ::Storage;
 
 pub trait Component: 'static + Sized {
     type Storage: Storage<Self>;
+    fn type_name() -> &'static str;
 }
 
 pub trait ComponentSync: Component{}

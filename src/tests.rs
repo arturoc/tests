@@ -9,6 +9,9 @@ fn insert_read() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
     }
 
     let mut world = ::World::new();
@@ -33,6 +36,51 @@ fn insert_read() {
 }
 
 #[test]
+fn insert_read_entities() {
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Pos{
+        x: f32,
+        y: f32,
+    }
+
+    impl ::Component for Pos{
+        type Storage = ::DenseVec<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
+    }
+
+    let mut world = ::World::new();
+    world.register::<Pos>();
+    world.create_entity()
+        .add(Pos{x: 1., y: 1.})
+        .build();
+    world.create_entity()
+        .add(Pos{x: 2., y: 2.})
+        .build();
+    world.create_entity()
+        .add(Pos{x: 3., y: 3.})
+        .build();
+
+    let entities = world.entities();
+    assert_eq!(entities.iter_for::<(::ReadEntities,::Read<Pos>)>().count(), 3);
+    let mut iter = entities.iter_for::<(::ReadEntities,::Read<Pos>)>();
+    let next = iter.next().unwrap();
+    assert_eq!(next.0.guid(), 0);
+    assert_eq!(next.1, &Pos{x: 1., y: 1.});
+
+    let next = iter.next().unwrap();
+    assert_eq!(next.0.guid(), 1);
+    assert_eq!(next.1, &Pos{x: 2., y: 2.});
+
+    let next = iter.next().unwrap();
+    assert_eq!(next.0.guid(), 2);
+    assert_eq!(next.1, &Pos{x: 3., y: 3.});
+
+    assert_eq!(iter.next(), None);
+}
+
+#[test]
 fn insert_read_write() {
     #[derive(Debug,PartialEq,Copy,Clone)]
     struct Pos{
@@ -42,6 +90,9 @@ fn insert_read_write() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
     }
 
     #[derive(Debug,PartialEq,Copy,Clone)]
@@ -52,6 +103,9 @@ fn insert_read_write() {
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
+        fn type_name() -> &'static str{
+            "Vel"
+        }
     }
 
     let mut world = ::World::new();
@@ -96,16 +150,25 @@ fn insert_read_write_parallel() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
     }
 
     struct C1;
     impl ::Component for C1{
         type Storage = ::DenseVec<C1>;
+        fn type_name() -> &'static str{
+            "C1"
+        }
     }
 
     struct C2;
     impl ::Component for C2{
         type Storage = ::DenseVec<C2>;
+        fn type_name() -> &'static str{
+            "C2"
+        }
     }
 
     #[derive(Debug,PartialEq,Copy,Clone)]
@@ -116,6 +179,9 @@ fn insert_read_write_parallel() {
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
+        fn type_name() -> &'static str{
+            "Vel"
+        }
     }
 
     let mut world = ::World::new();
@@ -180,6 +246,9 @@ fn hierarchical_insert_read() {
 
     impl ::Component for Pos{
         type Storage = ::Forest<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
     }
 
     let mut world = ::World::new();
@@ -210,7 +279,7 @@ fn hierarchical_insert_read() {
     assert_eq!(iter.next(), Some(&Pos{x: 5., y: 5.}));
     assert_eq!(iter.next(), None);
 
-    let mut descendants = entities.ordered_iter_for::<::HierarchicalRead<Pos>>();
+    let mut descendants = entities.ordered_iter_for::<::ReadHierarchical<Pos>>();
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 1., y: 1.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 3., y: 3.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 5., y: 5.}));
@@ -235,10 +304,16 @@ fn hierarchical_insert_read_write() {
 
     impl ::Component for Pos{
         type Storage = ::Forest<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
     }
 
     impl ::Component for GlobalPos{
         type Storage = ::Forest<GlobalPos>;
+        fn type_name() -> &'static str{
+            "GlobalPos"
+        }
     }
 
 
@@ -276,7 +351,7 @@ fn hierarchical_insert_read_write() {
     assert_eq!(iter.next(), Some(&Pos{x: 5., y: 5.}));
     assert_eq!(iter.next(), None);
 
-    let mut descendants = entities.ordered_iter_for::<::HierarchicalRead<Pos>>();
+    let mut descendants = entities.ordered_iter_for::<::ReadHierarchical<Pos>>();
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 1., y: 1.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 3., y: 3.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 5., y: 5.}));
@@ -284,7 +359,7 @@ fn hierarchical_insert_read_write() {
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 4., y: 4.}));
     assert_eq!(descendants.next().map(|n| n.data), None);
 
-    let write_global = entities.ordered_iter_for::<::HierarchicalWrite<GlobalPos>>();
+    let write_global = entities.ordered_iter_for::<::WriteHierarchical<GlobalPos>>();
     for mut global_pos in write_global{
         if let Some(parent) = global_pos.parent().map(|p| *p){
             global_pos.x = global_pos.x + parent.x;
@@ -300,7 +375,7 @@ fn hierarchical_insert_read_write() {
     //     }
     // }
 
-    let mut descendants = entities.ordered_iter_for::<::HierarchicalRead<GlobalPos>>();
+    let mut descendants = entities.ordered_iter_for::<::ReadHierarchical<GlobalPos>>();
     assert_eq!(descendants.next().map(|n| n.data), Some(GlobalPos{x: 1., y: 1.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(GlobalPos{x: 4., y: 4.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(GlobalPos{x: 9., y: 9.}));
@@ -327,10 +402,16 @@ fn read_write_and_parent() {
 
     impl ::Component for Pos{
         type Storage = ::Forest<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
     }
 
     impl ::Component for GlobalPos{
         type Storage = ::Forest<GlobalPos>;
+        fn type_name() -> &'static str{
+            "GlobalPos"
+        }
     }
 
 
@@ -368,7 +449,7 @@ fn read_write_and_parent() {
     assert_eq!(iter.next(), Some(&Pos{x: 5., y: 5.}));
     assert_eq!(iter.next(), None);
 
-    let mut descendants = entities.ordered_iter_for::<::HierarchicalRead<Pos>>();
+    let mut descendants = entities.ordered_iter_for::<::ReadHierarchical<Pos>>();
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 1., y: 1.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 3., y: 3.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 5., y: 5.}));
@@ -384,7 +465,7 @@ fn read_write_and_parent() {
         }
     }
 
-    let mut descendants = entities.ordered_iter_for::<::HierarchicalRead<GlobalPos>>();
+    let mut descendants = entities.ordered_iter_for::<::ReadHierarchical<GlobalPos>>();
     assert_eq!(descendants.next().map(|n| n.data), Some(GlobalPos{x: 1., y: 1.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(GlobalPos{x: 4., y: 4.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(GlobalPos{x: 9., y: 9.}));
@@ -408,10 +489,16 @@ fn insert_remove_dense_vec() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
     }
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
+        fn type_name() -> &'static str{
+            "Vel"
+        }
     }
 
     let mut world = ::World::new();
@@ -494,10 +581,16 @@ fn insert_remove_vec() {
 
     impl ::Component for Pos{
         type Storage = ::VecStorage<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
     }
 
     impl ::Component for Vel{
         type Storage = ::VecStorage<Vel>;
+        fn type_name() -> &'static str{
+            "Vel"
+        }
     }
 
     let mut world = ::World::new();
@@ -580,10 +673,16 @@ fn insert_remove_forest() {
 
     impl ::Component for Pos{
         type Storage = ::Forest<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
     }
 
     impl ::Component for Vel{
         type Storage = ::Forest<Vel>;
+        fn type_name() -> &'static str{
+            "Vel"
+        }
     }
 
     let mut world = ::World::new();

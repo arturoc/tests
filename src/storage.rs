@@ -2,6 +2,7 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use std::marker;
 use std::cell::UnsafeCell;
 use std::mem;
+use std::slice;
 
 use sync::{ReadGuardRef, WriteGuardRef};
 use ::Component;
@@ -9,6 +10,7 @@ use ::ComponentSync;
 use ::ComponentThreadLocal;
 use ::World;
 use ::IndexGuard;
+use ::Entity;
 
 pub trait Storage<T>{
     fn new() -> Self;
@@ -36,6 +38,8 @@ pub struct Read<'a, T: 'a + Component>{
 pub struct Write<'a, T: 'a + Component>{
     _marker: marker::PhantomData<&'a T>,
 }
+
+pub struct ReadEntities;
 
 // Sync Read/Write
 pub struct StorageRead<'a, S: Storage<T> + 'a, T: 'a + ComponentSync>{
@@ -120,6 +124,36 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Write<'a,T>
     }
 }
 
+impl<'a> IntoIter for &'a [Entity]{
+    type Iter = slice::Iter<'a,Entity>;
+    fn into_iter(self) -> Self::Iter{
+        self.iter()
+    }
+}
+
+impl<'a> StorageRef<'a, &'a Entity> for &'a [Entity]{
+    fn get(&self, guid: usize) -> &'a Entity{
+        unsafe{ self.get_unchecked(guid) }
+    }
+}
+
+impl<'a> UnorderedData<'a> for ReadEntities {
+    type Iter = slice::Iter<'a,Entity>;
+    type Components = Entity;
+    type ComponentsRef = &'a Entity;
+    type Storage = &'a [Entity];
+    fn components_mask(_world: &'a World) -> usize{
+        0
+    }
+
+    fn into_iter(world: &'a ::World) -> Self::Iter{
+        world.entities_ref().iter()
+    }
+
+    fn storage(world: &'a ::World) -> Self::Storage{
+        world.entities_ref()
+    }
+}
 
 // Thread local Read/Write
 pub struct StorageReadLocal<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal>{
@@ -432,11 +466,11 @@ pub trait HierarchicalStorage<T>: Storage<T>{
     fn ordered_ids(&self) -> &[usize];
 }
 
-pub struct HierarchicalRead<'a, T: 'a + Component>{
+pub struct ReadHierarchical<'a, T: 'a + Component>{
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct HierarchicalWrite<'a, T: 'a + Component>{
+pub struct WriteHierarchical<'a, T: 'a + Component>{
     _marker: marker::PhantomData<&'a T>,
 }
 
@@ -478,7 +512,7 @@ pub trait OrderedData<'a>{
 }
 
 
-impl<'a, T: 'a + ComponentSync> OrderedData<'a> for HierarchicalRead<'a,T>
+impl<'a, T: 'a + ComponentSync> OrderedData<'a> for ReadHierarchical<'a,T>
     where <T as Component>::Storage: HierarchicalStorage<T>,
           for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoOrderedIter
 {
@@ -507,7 +541,7 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for HierarchicalRead<'a,T>
 }
 
 
-impl<'a, T: 'a + ComponentSync> OrderedData<'a> for HierarchicalWrite<'a,T>
+impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteHierarchical<'a,T>
     where <T as Component>::Storage: HierarchicalStorage<T>,
           for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoOrderedIterMut
 {
@@ -572,7 +606,7 @@ pub trait OrderedDataLocal<'a>{
 }
 
 
-impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for HierarchicalRead<'a,T>
+impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for ReadHierarchical<'a,T>
     where <T as Component>::Storage: HierarchicalStorage<T>,
           for<'b> ReadGuardRef<'b, <T as Component>::Storage>: IntoOrderedIter
 {
@@ -601,7 +635,7 @@ impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for HierarchicalRead<'a,T>
 }
 
 
-impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for HierarchicalWrite<'a,T>
+impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for WriteHierarchical<'a,T>
     where <T as Component>::Storage: HierarchicalStorage<T>,
           for<'b> WriteGuardRef<'b, <T as Component>::Storage>: IntoOrderedIterMut
 {
