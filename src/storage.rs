@@ -14,6 +14,7 @@ pub trait Storage<T>{
     fn new() -> Self;
     fn with_capacity(usize) -> Self;
     fn insert(&mut self, guid: usize, t: T);
+    fn remove(&mut self, guid: usize);
     unsafe fn get(&self, guid: usize) -> &T;
     unsafe fn get_mut(&mut self, guid: usize) -> &mut T;
 }

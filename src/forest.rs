@@ -46,6 +46,15 @@ impl<T> Storage<T> for Forest<T>{
         self.roots.push(node_id.id());
     }
 
+    fn remove(&mut self, guid: usize){
+        let id = unsafe{ self.index.get_unchecked(guid) };
+        self.arena.remove(*id);
+        if let Some(pos) = self.roots.iter().position(|i| i == id){
+            self.roots.remove(pos);
+        }
+        unsafe{ (*self.ordered_ids.get()).clear() };
+    }
+
     unsafe fn get(&self, guid: usize) -> &T{
         let node_id = self.index.get_unchecked(guid);
         &self.arena[*node_id]

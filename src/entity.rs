@@ -115,7 +115,7 @@ impl<'a> Entities<'a>{
     pub fn component_for<C: ::ComponentSync>(&self, entity: Entity) -> &'a C{
         let storage = self.world.storage::<C>()
             .expect(&format!("Trying to use non registered type {}", "type name"));//C::type_name()));
-        unsafe{ mem::transmute::<&C,&C>( storage.get(entity.guid()) )}
+        unsafe{ mem::transmute::<&C, &C>( storage.get(entity.guid()) ) }
     }
 }
 

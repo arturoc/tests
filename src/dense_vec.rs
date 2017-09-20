@@ -3,6 +3,7 @@ use std::marker;
 use std::ptr;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
+// use std::mem;
 
 use storage::{Storage, IntoIter, IntoIterMut};
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
@@ -11,6 +12,7 @@ use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 pub struct DenseVec<T>{
     storage: Vec<T>,
     index: Vec<usize>,
+    len: usize,
 }
 
 impl<T> Storage<T> for DenseVec<T>{
@@ -18,6 +20,7 @@ impl<T> Storage<T> for DenseVec<T>{
         DenseVec{
             storage: vec![],
             index: vec![],
+            len: 0,
         }
     }
 
@@ -25,6 +28,7 @@ impl<T> Storage<T> for DenseVec<T>{
         DenseVec{
             storage: Vec::with_capacity(capacity),
             index: Vec::with_capacity(capacity),
+            len: 0,
         }
     }
 
@@ -39,6 +43,16 @@ impl<T> Storage<T> for DenseVec<T>{
             unsafe{ self.index.set_len(guid+1) }
         }
         unsafe{ ptr::write(self.index.get_unchecked_mut(guid), id) };
+        self.len += 1;
+    }
+
+    fn remove(&mut self, guid: usize){
+        let index = unsafe{ *self.index.get_unchecked(guid) };
+        self.storage.remove(index);
+        for i in self.index.iter_mut().filter(|i| **i > index){
+            *i -= 1;
+        }
+        self.len -= 1;
     }
 
     unsafe fn get(&self, guid: usize) -> &T{
@@ -52,7 +66,7 @@ impl<T> Storage<T> for DenseVec<T>{
 
 impl<T> DenseVec<T>{
     pub fn len(&self) -> usize{
-        self.index.len()
+        self.len
     }
 
     pub fn iter(&self) -> slice::Iter<T>{

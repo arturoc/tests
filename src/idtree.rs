@@ -167,6 +167,22 @@ impl<T> Arena<T> {
     //     self.nodes[id.index].alive
     // }
 
+    pub fn remove<N: Into<NodeId>>(&mut self, id: N){
+        let id = id.into();
+        if unsafe{ self.nodes.get(id.index).parent().is_some() }{
+            for c in id.children(self).collect::<Vec<_>>(){
+                id.insert_after(c, self);
+            }
+        }else{
+            for c in id.children(self).collect::<Vec<_>>(){
+                c.detach(self);
+            }
+        }
+        id.detach(self);
+        self.nodes.remove(id.index);
+    }
+
+
     // pub fn remove<N: Into<NodeId>>(&mut self, id: N) -> Result<(),()>{
     //     let id = id.into();
     //     if self.contains(id){

@@ -39,6 +39,13 @@ impl<T> Storage<T> for VecStorage<T>{
         self.ids.push(guid);
     }
 
+    fn remove(&mut self, guid: usize){
+        unsafe{ mem::replace(self.storage.get_unchecked_mut(guid), mem::uninitialized()) };
+        if let Some(pos) = self.ids.iter().position(|id| *id == guid){
+            self.ids.remove(pos);
+        }
+    }
+
     unsafe fn get(&self, guid: usize) -> &T{
         self.storage.get_unchecked(guid)
     }

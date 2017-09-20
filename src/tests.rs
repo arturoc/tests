@@ -193,10 +193,10 @@ fn hierarchical_insert_read() {
     let e3 = world.create_entity()
         .add_child(e1, Pos{x: 3., y: 3.})
         .build();
-    let e4 = world.create_entity()
+    let _e4 = world.create_entity()
         .add_child(e2, Pos{x: 4., y: 4.})
         .build();
-    let e5 = world.create_entity()
+    let _e5 = world.create_entity()
         .add_child(e3, Pos{x: 5., y: 5.})
         .build();
 
@@ -284,7 +284,7 @@ fn hierarchical_insert_read_write() {
     assert_eq!(descendants.next().map(|n| n.data), Some(Pos{x: 4., y: 4.}));
     assert_eq!(descendants.next().map(|n| n.data), None);
 
-    let mut write_global = entities.ordered_iter_for::<::HierarchicalWrite<GlobalPos>>();
+    let write_global = entities.ordered_iter_for::<::HierarchicalWrite<GlobalPos>>();
     for mut global_pos in write_global{
         if let Some(parent) = global_pos.parent().map(|p| *p){
             global_pos.x = global_pos.x + parent.x;
@@ -292,7 +292,7 @@ fn hierarchical_insert_read_write() {
         }
     }
 
-    // let mut write_global = entities.ordered_iter_for::<::WriteAndParent<GlobalPos>>();
+    // let write_global = entities.ordered_iter_for::<::WriteAndParent<GlobalPos>>();
     // for (mut global_pos, parent) in write_global{
     //     if let Some(parent) = parent{
     //         global_pos.x = global_pos.x + parent.x;
@@ -307,4 +307,261 @@ fn hierarchical_insert_read_write() {
     assert_eq!(descendants.next().map(|n| n.data), Some(GlobalPos{x: 2., y: 2.}));
     assert_eq!(descendants.next().map(|n| n.data), Some(GlobalPos{x: 6., y: 6.}));
     assert_eq!(descendants.next().map(|n| n.data), None);
+}
+
+
+#[test]
+fn insert_remove_dense_vec() {
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Pos{
+        x: f32,
+        y: f32,
+    }
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Vel{
+        x: f32,
+        y: f32,
+    }
+
+    impl ::Component for Pos{
+        type Storage = ::DenseVec<Pos>;
+    }
+
+    impl ::Component for Vel{
+        type Storage = ::DenseVec<Vel>;
+    }
+
+    let mut world = ::World::new();
+    world.register::<Pos>();
+    world.register::<Vel>();
+    let _e1 = world.create_entity()
+        .add(Pos{x: 1., y: 1.})
+        .add(Vel{x: 1., y: 1.})
+        .build();
+    let e2 = world.create_entity()
+        .add(Pos{x: 2., y: 2.})
+        .add(Vel{x: 2., y: 2.})
+        .build();
+    let _e3 = world.create_entity()
+        .add(Pos{x: 3., y: 3.})
+        .add(Vel{x: 3., y: 3.})
+        .build();
+
+    {
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>().count(), 3);
+        let mut iter = entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>();
+        assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, &Vel{x: 1., y: 1.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 2., y: 2.}, &Vel{x: 2., y: 2.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, &Vel{x: 3., y: 3.})));
+        assert_eq!(iter.next(), None);
+    }
+
+    world.remove_component_from::<Vel>(&e2);
+
+    {
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>().count(), 2);
+        let mut iter = entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>();
+        assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, &Vel{x: 1., y: 1.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, &Vel{x: 3., y: 3.})));
+        assert_eq!(iter.next(), None);
+
+        assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
+        let mut iter = entities.iter_for::<::Read<Pos>>();
+        assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
+        assert_eq!(iter.next(), None);
+    }
+
+    world.remove_entity(&e2);
+
+    {
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>().count(), 2);
+        let mut iter = entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>();
+        assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, &Vel{x: 1., y: 1.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, &Vel{x: 3., y: 3.})));
+        assert_eq!(iter.next(), None);
+
+        assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 2);
+        let mut iter = entities.iter_for::<::Read<Pos>>();
+        assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
+        assert_eq!(iter.next(), None);
+    }
+
+}
+
+
+
+#[test]
+fn insert_remove_vec() {
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Pos{
+        x: f32,
+        y: f32,
+    }
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Vel{
+        x: f32,
+        y: f32,
+    }
+
+    impl ::Component for Pos{
+        type Storage = ::VecStorage<Pos>;
+    }
+
+    impl ::Component for Vel{
+        type Storage = ::VecStorage<Vel>;
+    }
+
+    let mut world = ::World::new();
+    world.register::<Pos>();
+    world.register::<Vel>();
+    let _e1 = world.create_entity()
+        .add(Pos{x: 1., y: 1.})
+        .add(Vel{x: 1., y: 1.})
+        .build();
+    let e2 = world.create_entity()
+        .add(Pos{x: 2., y: 2.})
+        .add(Vel{x: 2., y: 2.})
+        .build();
+    let _e3 = world.create_entity()
+        .add(Pos{x: 3., y: 3.})
+        .add(Vel{x: 3., y: 3.})
+        .build();
+
+    {
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>().count(), 3);
+        let mut iter = entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>();
+        assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, &Vel{x: 1., y: 1.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 2., y: 2.}, &Vel{x: 2., y: 2.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, &Vel{x: 3., y: 3.})));
+        assert_eq!(iter.next(), None);
+    }
+
+    world.remove_component_from::<Vel>(&e2);
+
+    {
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>().count(), 2);
+        let mut iter = entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>();
+        assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, &Vel{x: 1., y: 1.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, &Vel{x: 3., y: 3.})));
+        assert_eq!(iter.next(), None);
+
+        assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
+        let mut iter = entities.iter_for::<::Read<Pos>>();
+        assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
+        assert_eq!(iter.next(), None);
+    }
+
+    world.remove_entity(&e2);
+
+    {
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>().count(), 2);
+        let mut iter = entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>();
+        assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, &Vel{x: 1., y: 1.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, &Vel{x: 3., y: 3.})));
+        assert_eq!(iter.next(), None);
+
+        assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 2);
+        let mut iter = entities.iter_for::<::Read<Pos>>();
+        assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
+        assert_eq!(iter.next(), None);
+    }
+
+}
+
+
+
+#[test]
+fn insert_remove_forest() {
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Pos{
+        x: f32,
+        y: f32,
+    }
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Vel{
+        x: f32,
+        y: f32,
+    }
+
+    impl ::Component for Pos{
+        type Storage = ::Forest<Pos>;
+    }
+
+    impl ::Component for Vel{
+        type Storage = ::Forest<Vel>;
+    }
+
+    let mut world = ::World::new();
+    world.register::<Pos>();
+    world.register::<Vel>();
+    let _e1 = world.create_entity()
+        .add(Pos{x: 1., y: 1.})
+        .add(Vel{x: 1., y: 1.})
+        .build();
+    let e2 = world.create_entity()
+        .add(Pos{x: 2., y: 2.})
+        .add(Vel{x: 2., y: 2.})
+        .build();
+    let _e3 = world.create_entity()
+        .add(Pos{x: 3., y: 3.})
+        .add(Vel{x: 3., y: 3.})
+        .build();
+
+    {
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>().count(), 3);
+        let mut iter = entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>();
+        assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, &Vel{x: 1., y: 1.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 2., y: 2.}, &Vel{x: 2., y: 2.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, &Vel{x: 3., y: 3.})));
+        assert_eq!(iter.next(), None);
+    }
+
+    world.remove_component_from::<Vel>(&e2);
+
+    {
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>().count(), 2);
+        let mut iter = entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>();
+        assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, &Vel{x: 1., y: 1.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, &Vel{x: 3., y: 3.})));
+        assert_eq!(iter.next(), None);
+
+        assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
+        let mut iter = entities.iter_for::<::Read<Pos>>();
+        assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 2., y: 2.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
+        assert_eq!(iter.next(), None);
+    }
+
+    world.remove_entity(&e2);
+
+    {
+        let entities = world.entities();
+        assert_eq!(entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>().count(), 2);
+        let mut iter = entities.iter_for::<(::Read<Pos>, ::Read<Vel>)>();
+        assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, &Vel{x: 1., y: 1.})));
+        assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, &Vel{x: 3., y: 3.})));
+        assert_eq!(iter.next(), None);
+
+        assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 2);
+        let mut iter = entities.iter_for::<::Read<Pos>>();
+        assert_eq!(iter.next(), Some(&Pos{x: 1., y: 1.}));
+        assert_eq!(iter.next(), Some(&Pos{x: 3., y: 3.}));
+        assert_eq!(iter.next(), None);
+    }
+
 }

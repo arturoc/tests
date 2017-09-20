@@ -1,4 +1,5 @@
 #![cfg_attr(feature = "unstable", feature(test))]
+#![cfg_attr(feature = "unstable", feature(get_type_id))]
 
 #[cfg(test)]
 extern crate rayon;
@@ -9,6 +10,7 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
+use std::mem;
 
 use sync::*;
 use storage::*;
@@ -46,6 +48,8 @@ pub struct World{
     entities: Vec<Entity>, // Doesn't need lock cause never accesed mut from Entities?
     entities_index_per_mask: RwLock<HashMap<usize, Vec<usize>>>,
     ordered_entities_index_per_mask: RwLock<HashMap<TypeId, HashMap<usize, Vec<usize>>>>,
+    reverse_components_mask_index: HashMap<usize, TypeId>,
+    remove_components_mask_index: HashMap<usize, Box<Fn(&World, usize)>>,
 
     next_component_mask: AtomicUsize,
     components_mask_index: HashMap<TypeId, usize>,
@@ -62,6 +66,8 @@ impl World{
             components_mask_index: HashMap::new(),
             entities_index_per_mask: RwLock::new(HashMap::new()),
             ordered_entities_index_per_mask: RwLock::new(HashMap::new()),
+            reverse_components_mask_index: HashMap::new(),
+            remove_components_mask_index: HashMap::new(),
         }
     }
 
@@ -72,6 +78,12 @@ impl World{
         let next_mask = *next_mask_mut;
         *next_mask_mut *= 2;
         self.components_mask_index.insert(type_id, next_mask);
+        self.reverse_components_mask_index.insert(next_mask, type_id);
+        self.remove_components_mask_index.insert(next_mask, Box::new(|world, guid|{
+            // let s: &RwLock<<C as ::Component>::Storage> = any.downcast_ref().unwrap();
+            // s.write().unwrap().remove(guid)
+            world.storage_mut::<C>().unwrap().remove(guid);
+        }));
         self.storages.insert(type_id, storage);
     }
 
@@ -82,6 +94,13 @@ impl World{
         let next_mask = *next_mask_mut;
         *next_mask_mut *= 2;
         self.components_mask_index.insert(type_id, next_mask);
+        self.reverse_components_mask_index.insert(next_mask, type_id);
+        self.remove_components_mask_index.insert(next_mask, Box::new(|world, guid|{
+            //let s: &RefCell<<C as ::Component>::Storage> = any.downcast_ref().unwrap();
+            //s.borrow_mut().remove(guid)
+            world.storage_mut::<C>().unwrap().remove(guid);
+
+        }));
         self.storages_thread_local.insert(type_id, storage);
     }
 
@@ -96,6 +115,52 @@ impl World{
 
     pub fn entities_thread_local(&self) -> EntitiesThreadLocal{
         EntitiesThreadLocal::new(self)
+    }
+
+    pub fn remove_component_from<C: ::Component>(&mut self, entity: &::Entity){
+        {
+            let storage = self.storage_mut::<C>();
+            if let Some(mut storage) = storage{
+                storage.remove(entity.guid())
+            }else{
+                panic!("Trying to add component of type {} without registering first", "C::type_name()")
+            }
+        }
+        self.entities[entity.guid()].components_mask &= !self.components_mask_index[&TypeId::of::<C>()];
+        let mask = self.components_mask::<C>();
+        let type_id = self.reverse_components_mask_index[&mask];
+        if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(&type_id){
+            cache.clear();
+        }
+        self.entities_index_per_mask.write().unwrap().clear();
+    }
+
+    pub fn remove_entity(&mut self, entity: &::Entity){
+        //if let Ok(pos) = self.entities.binary_search_by(|e| e.guid().cmp(&entity.guid())){
+        let entity = unsafe{ mem::transmute::<&mut Entity, &mut Entity>(&mut self.entities[entity.guid()]) };
+        let mut mask = 1;
+        while mask < self.next_component_mask.load(Ordering::Relaxed){
+            if entity.components_mask & mask == mask{
+                // let storage = &self.storages[&type_id];
+                let remove_component = unsafe{
+                    mem::transmute::<&Box<Fn(&World, usize)>, &Box<Fn(&World, usize)>>(&self.remove_components_mask_index[&mask])
+                };
+                remove_component(self, entity.guid());
+                entity.components_mask &= !mask;
+                let type_id = self.reverse_components_mask_index[&mask];
+                if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(&type_id){
+                    cache.clear();
+                }
+            }
+            mask *= 2;
+        }
+        // self.ordered_entities_index_per_mask.write().unwrap().clear();
+        self.entities_index_per_mask.write().unwrap().clear();
+        // TODO: can't remove entities since we rely on order for fast entitty search
+        // mostly on ordered_ids_for. others are add / remove component which could be slower
+        // without problem
+        // Use DenseVec for entities storage?
+        // self.entities.remove(pos);
     }
 
     pub(crate) fn next_guid(&mut self) -> usize{
