@@ -10,7 +10,9 @@ use ::UnorderedDataLocal;
 use ::OrderedData;
 use ::OrderedDataLocal;
 use ::Storage;
+use ::OneToNStorage;
 use ::HierarchicalStorage;
+use component::OneToNComponentSync;
 
 #[derive(Clone,Copy,Eq,PartialEq,Debug)]
 pub struct Entity {
@@ -83,6 +85,19 @@ impl<'a> EntityBuilder<'a>{
                 unsafe{ storage.insert_child(parent.guid, self.guid, component) }
             }else{
                 panic!("Trying to add component of type {} without registering first", "type_name");//C::type_name())
+            }
+        };
+        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self
+    }
+
+    pub fn add_slice<C: OneToNComponentSync + Clone>(&mut self, component: &[C]) -> &mut Self{
+        {
+            let storage = self.world.storage_mut::<C>();
+            if let Some(mut storage) = storage{
+                storage.insert_slice(self.guid, component)
+            }else{
+                panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
         self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];

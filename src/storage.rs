@@ -1031,3 +1031,11 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteAndParent<'a,T>
         world.ordered_entities_for::<T>(mask)
     }
 }
+
+
+// OneToN
+pub trait OneToNStorage<T>: Storage<T>{
+    fn insert_slice(&mut self, guid: usize, t: &[T]) where T: Clone;
+    unsafe fn get_slice(&self, guid: usize) -> &[T];
+    unsafe fn get_slice_mut(&mut self, guid: usize) -> &mut [T];
+}

@@ -10,15 +10,17 @@ use storage::*;
 pub use storage::{Read, Write, Storage, IntoIter, IntoIterMut,
     ReadEntities,
     ReadHierarchical, WriteHierarchical, HierarchicalStorage,
-    IntoOrderedIter, IntoOrderedIterMut, ReadAndParent, WriteAndParent};
+    IntoOrderedIter, IntoOrderedIterMut, ReadAndParent, WriteAndParent
+};
 pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder};
-pub use component::{Component, ComponentSync, ComponentThreadLocal};
+pub use component::{Component, ComponentSync, ComponentThreadLocal, OneToNComponent};
 pub use dense_vec::DenseVec;
 pub use forest::Forest;
 pub use vec::VecStorage;
 pub use resource::Resources;
 pub use world::World;
 pub use system::*;
+pub use oneton_densevec::DenseOneToNVec;
 
 mod sync;
 mod entity;
@@ -31,6 +33,7 @@ mod vec;
 mod resource;
 mod world;
 mod system;
+mod oneton_densevec;
 
 #[cfg(test)]
 mod tests;
