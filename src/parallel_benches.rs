@@ -28,14 +28,23 @@ pub struct W2 {
 
 impl ::Component for R{
     type Storage = BenchStorage<R>;
+    fn type_name() -> &'static str{
+        "R"
+    }
 }
 
 impl ::Component for W1{
     type Storage = BenchStorage<W1>;
+    fn type_name() -> &'static str{
+        "W1"
+    }
 }
 
 impl ::Component for W2{
     type Storage = BenchStorage<W2>;
+    fn type_name() -> &'static str{
+        "W2"
+    }
 }
 
 fn build() -> ::World {

@@ -24,9 +24,9 @@ pub struct Position {
 
 impl ::Component for Position{
     type Storage = BenchStorage<Position>;
-    // fn type_name() -> &'static str{
-    //     "Position"
-    // }
+    fn type_name() -> &'static str{
+        "Position"
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -37,9 +37,9 @@ pub struct Velocity {
 
 impl ::Component for Velocity{
     type Storage = BenchStorage<Velocity>;
-    // fn type_name() -> &'static str{
-    //     "Velocity"
-    // }
+    fn type_name() -> &'static str{
+        "Velocity"
+    }
 }
 
 // // Systems
@@ -94,12 +94,12 @@ fn bench_update(b: &mut Bencher) {
     b.iter(||{
         let entities = world.entities_thread_local();
         // world.run_once();
-        for (mut pos, vel) in entities.ordered_iter_for::<(::HierarchicalWrite<Position>, ::Read<Velocity>)>(){
+        for (mut pos, vel) in entities.ordered_iter_for::<(::WriteHierarchical<Position>, ::Read<Velocity>)>(){
             pos.x += vel.dx;
             pos.y += vel.dy;
         }
 
-        for pos in entities.ordered_iter_for::<::HierarchicalRead<Position>>(){
+        for pos in entities.ordered_iter_for::<::ReadHierarchical<Position>>(){
             let _ = pos;
         }
     });

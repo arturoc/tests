@@ -24,9 +24,9 @@ pub struct Position {
 
 impl ::Component for Position{
     type Storage = BenchStorage<Position>;
-    // fn type_name() -> &'static str{
-    //     "Position"
-    // }
+    fn type_name() -> &'static str{
+        "Position"
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -37,9 +37,9 @@ pub struct Velocity {
 
 impl ::Component for Velocity{
     type Storage = BenchStorage<Velocity>;
-    // fn type_name() -> &'static str{
-    //     "Velocity"
-    // }
+    fn type_name() -> &'static str{
+        "Velocity"
+    }
 }
 
 // // Systems
