@@ -834,3 +834,48 @@ fn insert_read_write_one_to_n() {
         assert_eq!(poss[0], Pos{x: poss.len() as f32 + 1., y: poss.len() as f32 + 1.});
     }
 }
+
+// #[test]
+// fn insert_read_slice_alloc() {
+//     struct Vertex{
+//         x: f32, y: f32,
+//     }
+//
+//     #[derive(Debug,PartialEq,Copy,Clone)]
+//     struct Vertices<'a>(&'a [Vertex]);
+//
+//     impl<'a> ::Component for Vertices<'a>{
+//         type Storage = ::DenseVec<Vertices<'a>>;
+//         fn type_name() -> &'static str{
+//             "Vertices"
+//         }
+//     }
+//
+//     let mut alloc = Vec::new();
+//
+//     let mut world = ::World::new();
+//     world.register::<Vertices>();
+//
+//     alloc.extend_from_slice(&[Vertex{x: 1, y: 1}]);
+//     world.create_entity()
+//         .add(Vertices(&alloc[0..1]))
+//         .build();
+//
+//     alloc.extend_from_slice(&[Vertex{x: 2, y: 2}, Vertex{x: 2, y: 2}]);
+//     world.create_entity()
+//         .add(Vertices(&alloc[1..3]))
+//         .build();
+//
+//     alloc.extend_from_slice(&[Vertex{x: 3, y: 3}, Vertex{x: 3, y: 3}, Vertex{x: 3, y: 3}]);
+//     world.create_entity()
+//         .add(Vertices(&alloc[3..6]))
+//         .build();
+//
+//     let entities = world.entities();
+//     assert_eq!(entities.iter_for::<::Read<Vertices>>().count(), 3);
+//
+//     let mut iter = entities.iter_for::<::Read<Vertices>>();
+//     for poss in iter{
+//         assert_eq!(poss[0], Vertex{x: poss.len() as f32, y: poss.len() as f32});
+//     }
+// }

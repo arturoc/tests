@@ -1034,8 +1034,116 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteAndParent<'a,T>
 
 
 // OneToN
+// use component::{OneToNComponent, OneToNComponentSync, OneToNComponentThreadLocal};
+
 pub trait OneToNStorage<T>: Storage<T>{
     fn insert_slice(&mut self, guid: usize, t: &[T]) where T: Clone;
     unsafe fn get_slice(&self, guid: usize) -> &[T];
     unsafe fn get_slice_mut(&mut self, guid: usize) -> &mut [T];
 }
+
+
+// pub struct ReadOneToN<'a, T: 'a + OneToNComponent>{
+//     marker: marker::PhantomData<&'a T>,
+// }
+//
+//
+// pub struct WriteOneToN<'a, T: 'a + OneToNComponent>{
+//     marker: marker::PhantomData<&'a T>,
+// }
+//
+//
+// impl<'a, T: 'a + OneToNComponentSync> UnorderedData<'a> for ReadOneToN<'a,T>
+//     where for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoIter
+// {
+//     type Iter = <RwLockReadGuard<'a, <T as Component>::Storage> as IntoIter>::Iter;
+//     type Components = T;
+//     type ComponentsRef = &'a [T];
+//     type Storage = StorageRead<'a, <T as Component>::Storage, Self::Components>;
+//     fn components_mask(world: &'a World) -> usize{
+//         world.components_mask::<T>()
+//     }
+//
+//     fn into_iter(world: &'a ::World) -> Self::Iter{
+//         world.storage::<T>().unwrap().into_iter()
+//     }
+//
+//     fn storage(world: &'a ::World) -> Self::Storage{
+//         StorageRead{
+//             storage: world.storage::<T>().unwrap(),
+//             _marker: marker::PhantomData,
+//         }
+//     }
+// }
+//
+//
+// impl<'a, T: 'a + OneToNComponentSync> UnorderedData<'a> for WriteOneToN<'a,T>
+//     where for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoIterMut
+// {
+//     type Iter = <RwLockWriteGuard<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
+//     type Components = T;
+//     type ComponentsRef = &'a mut [T];
+//     type Storage = StorageWrite<'a, <T as Component>::Storage, Self::Components>;
+//     fn components_mask(world: &'a World) -> usize{
+//         world.components_mask::<T>()
+//     }
+//
+//     fn into_iter(world: &'a ::World) -> Self::Iter{
+//         world.storage_mut::<T>().unwrap().into_iter_mut()
+//     }
+//
+//     fn storage(world: &'a ::World) -> Self::Storage{
+//         StorageWrite{
+//             storage: UnsafeCell::new(world.storage_mut::<T>().unwrap()),
+//             _marker: marker::PhantomData,
+//         }
+//     }
+// }
+//
+//
+// impl<'a, T: 'a + OneToNComponentThreadLocal> UnorderedDataLocal<'a> for ReadOneToN<'a,T>
+//     where for<'b> ReadGuardRef<'b, <T as Component>::Storage>: IntoIter
+// {
+//     type Iter = <ReadGuardRef<'a, <T as Component>::Storage> as IntoIter>::Iter;
+//     type Components = T;
+//     type ComponentsRef = &'a [T];
+//     type Storage = StorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
+//     fn components_mask(world: &'a World) -> usize{
+//         world.components_mask::<T>()
+//     }
+//
+//     fn into_iter(world: &'a ::World) -> Self::Iter{
+//         world.storage_thread_local::<T>().unwrap().into_iter()
+//     }
+//
+//     fn storage(world: &'a ::World) -> Self::Storage{
+//         StorageReadLocal{
+//             storage: world.storage_thread_local::<T>().unwrap(),
+//             _marker: marker::PhantomData,
+//         }
+//     }
+// }
+//
+//
+// impl<'a, T: 'a + OneToNComponentThreadLocal> UnorderedDataLocal<'a> for WriteOneToN<'a,T>
+//     where for<'b> WriteGuardRef<'b, <T as Component>::Storage>: IntoIterMut
+// {
+//     type Iter = <WriteGuardRef<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
+//     type Components = T;
+//     type ComponentsRef = &'a mut [T];
+//     type Storage = StorageWriteLocal<'a, <T as Component>::Storage, Self::Components>;
+//     fn components_mask(world: &'a World) -> usize{
+//         world.components_mask::<T>()
+//     }
+//
+//     fn into_iter(world: &'a ::World) -> Self::Iter{
+//         world.storage_thread_local_mut::<T>().unwrap().into_iter_mut()
+//     }
+//
+//     fn storage(world: &'a ::World) -> Self::Storage{
+//         StorageWriteLocal{
+//             storage: UnsafeCell::new(world.storage_thread_local_mut::<T>().unwrap()),
+//             _marker: marker::PhantomData,
+//         }
+//     }
+// }

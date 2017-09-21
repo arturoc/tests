@@ -51,7 +51,7 @@ impl<'a> EntityBuilder<'a>{
         entity
     }
 
-    pub fn add<C: ComponentSync>(&mut self, component: C) -> &mut Self {
+    pub fn add<C: ComponentSync + 'a>(&mut self, component: C) -> &mut Self {
         {
             let storage = self.world.storage_mut::<C>();
             if let Some(mut storage) = storage{

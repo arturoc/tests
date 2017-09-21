@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use std::collections::hash_map::{Values, ValuesMut};
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use std::marker;
 use std::mem;
+use std::slice;
 
 use storage::{Storage, OneToNStorage, IntoIter, IntoIterMut};
+use ::DenseVec;
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 
 struct Group{
@@ -14,7 +14,7 @@ struct Group{
 
 pub struct DenseOneToNVec<T>{
     vec: Vec<T>,
-    index: HashMap<usize,Group>,
+    index: DenseVec<Group>,
     ids: Vec<usize>,
 }
 
@@ -31,12 +31,12 @@ impl<T> OneToNStorage<T> for DenseOneToNVec<T>{
     }
 
     unsafe fn get_slice(&self, guid: usize) -> &[T]{
-        let slice = &self.index[&guid];
+        let slice = &self.index.get(guid);
         &self.vec[slice.first_index..slice.first_index + slice.len]
     }
 
     unsafe fn get_slice_mut(&mut self, guid: usize) -> &mut [T]{
-        let slice = &self.index[&guid];
+        let slice = &self.index.get(guid);
         &mut self.vec[slice.first_index..slice.first_index + slice.len]
     }
 }
@@ -47,7 +47,7 @@ impl<T> Storage<T> for DenseOneToNVec<T>{
     fn new() -> DenseOneToNVec<T>{
         DenseOneToNVec{
             vec: vec![],
-            index: HashMap::new(),
+            index: DenseVec::new(),
             ids: vec![],
         }
     }
@@ -55,7 +55,7 @@ impl<T> Storage<T> for DenseOneToNVec<T>{
     fn with_capacity(capacity: usize) -> DenseOneToNVec<T>{
         DenseOneToNVec{
             vec: Vec::with_capacity(capacity),
-            index: HashMap::new(),
+            index: DenseVec::new(),
             ids: vec![],
         }
     }
@@ -69,7 +69,7 @@ impl<T> Storage<T> for DenseOneToNVec<T>{
     }
 
     fn remove(&mut self, guid: usize){
-        let group = &self.index[&guid];
+        let group = unsafe{ &self.index.get(guid) };
         self.vec.drain(group.first_index .. group.first_index + group.len);
         for i in group.first_index .. group.first_index + group.len{
             if let Some(i) = self.ids.iter().position(|id| *id == i){
@@ -79,18 +79,19 @@ impl<T> Storage<T> for DenseOneToNVec<T>{
     }
 
     unsafe fn get(&self, guid: usize) -> &T{
-        self.get_slice(guid).get_unchecked(0)
+        let slice = &self.index.get(guid);
+        self.vec.get_unchecked(slice.first_index)
     }
 
     unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
-        self.get_slice_mut(guid).get_unchecked_mut(0)
+        let slice = &self.index.get(guid);
+        self.vec.get_unchecked_mut(slice.first_index)
     }
 }
 
-
 pub struct OneToNDenseIter<'a, T: 'a>{
     storage: ReadGuardRef<'a, DenseOneToNVec<T>>,
-    it: Values<'a,usize,Group>,
+    it: slice::Iter<'a,Group>,
     _marker: marker::PhantomData<&'a T>,
 }
 
@@ -107,7 +108,7 @@ impl<'a, T: 'a> Iterator for OneToNDenseIter<'a, T>{
 impl<'a, T> IntoIter for ReadGuardRef<'a, DenseOneToNVec<T>>{
     type Iter = OneToNDenseIter<'a, T>;
     fn into_iter(self) -> OneToNDenseIter<'a, T>{
-        let it = unsafe{ mem::transmute::<Values<usize,Group>, Values<usize,Group>>(self.index.values()) };
+        let it = unsafe{ mem::transmute::<slice::Iter<Group>, slice::Iter<Group>>(self.index.iter()) };
         OneToNDenseIter{
             it,
             storage: self,
@@ -127,7 +128,7 @@ impl<'a, T> IntoIter for RwLockReadGuard<'a, DenseOneToNVec<T>>{
 
 pub struct OneToNDenseIterMut<'a, T: 'a>{
     storage: WriteGuardRef<'a, DenseOneToNVec<T>>,
-    it: ValuesMut<'a,usize,Group>,
+    it: slice::IterMut<'a,Group>,
     _marker: marker::PhantomData<&'a T>,
 }
 
@@ -145,7 +146,7 @@ impl<'a, T: 'a> Iterator for OneToNDenseIterMut<'a, T>{
 impl<'a, T> IntoIterMut for WriteGuardRef<'a, DenseOneToNVec<T>>{
     type IterMut = OneToNDenseIterMut<'a, T>;
     fn into_iter_mut(mut self) -> OneToNDenseIterMut<'a, T>{
-        let it = unsafe{ mem::transmute::<ValuesMut<usize,Group>, ValuesMut<usize,Group>>(self.index.values_mut()) };
+        let it = unsafe{ mem::transmute::<slice::IterMut<Group>, slice::IterMut<Group>>(self.index.iter_mut()) };
         OneToNDenseIterMut{
             it,
             storage: self,

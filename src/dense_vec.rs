@@ -4,6 +4,7 @@ use std::ptr;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
 // use std::mem;
+use std::usize;
 
 use storage::{Storage, IntoIter, IntoIterMut};
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
@@ -35,13 +36,14 @@ impl<T> Storage<T> for DenseVec<T>{
     fn insert(&mut self, guid: usize, t: T){
         let id = self.storage.len();
         self.storage.push(t);
-        if self.index.capacity() < guid + 1{
-            let diff = guid + 1 - self.index.len();
-            self.index.reserve(diff);
+        if self.index.len() < guid + 1{
+            // let diff = guid + 1 - self.index.len();
+            // self.index.reserve(diff);
+            self.index.resize(guid + 1, usize::MAX)
         }
-        if self.index.len() < guid +1 {
-            unsafe{ self.index.set_len(guid+1) }
-        }
+        // if self.index.len() < guid +1 {
+        //     unsafe{ self.index.set_len(guid+1) }
+        // }
         unsafe{ ptr::write(self.index.get_unchecked_mut(guid), id) };
         self.len += 1;
     }
@@ -64,6 +66,30 @@ impl<T> Storage<T> for DenseVec<T>{
     }
 }
 
+pub struct OccupiedEntry<'a, T: 'a>(&'a mut T);
+
+pub struct VacantEntry<'a, T: 'a>{
+    storage: &'a mut DenseVec<T>,
+    guid: usize,
+}
+
+pub enum Entry<'a, T: 'a>{
+    Occupied(OccupiedEntry<'a, T>),
+    Vacant(VacantEntry<'a, T>),
+}
+
+impl<'a, T: 'a> Entry<'a, T>{
+    pub fn or_insert(self, default: T) -> &'a mut T{
+        match self{
+            Entry::Occupied(OccupiedEntry(t)) => t,
+            Entry::Vacant(VacantEntry{storage, guid}) => {
+                storage.insert(guid, default);
+                unsafe{ storage.get_mut(guid) }
+            }
+        }
+    }
+}
+
 impl<T> DenseVec<T>{
     pub fn len(&self) -> usize{
         self.len
@@ -75,6 +101,19 @@ impl<T> DenseVec<T>{
 
     pub fn iter_mut(&mut self) -> slice::IterMut<T>{
         self.storage.iter_mut()
+    }
+
+    pub fn entry(&mut self, guid: usize) -> Entry<T>{
+        if guid >= self.len{
+            Entry::Vacant(VacantEntry{storage: self, guid})
+        }else{
+            let idx = unsafe{ *self.index.get_unchecked(guid) };
+            if idx == usize::MAX {
+                Entry::Vacant(VacantEntry{storage: self, guid})
+            }else{
+                Entry::Occupied(OccupiedEntry(unsafe{ self.storage.get_unchecked_mut(idx) }))
+            }
+        }
     }
 }
 

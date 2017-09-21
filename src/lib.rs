@@ -10,7 +10,7 @@ use storage::*;
 pub use storage::{Read, Write, Storage, IntoIter, IntoIterMut,
     ReadEntities,
     ReadHierarchical, WriteHierarchical, HierarchicalStorage,
-    IntoOrderedIter, IntoOrderedIterMut, ReadAndParent, WriteAndParent
+    IntoOrderedIter, IntoOrderedIterMut, ReadAndParent, WriteAndParent,
 };
 pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder};
 pub use component::{Component, ComponentSync, ComponentThreadLocal, OneToNComponent};
@@ -44,3 +44,5 @@ mod benches;
 mod parallel_benches;
 #[cfg(feature="unstable")]
 mod hierarchical_benches;
+#[cfg(feature="unstable")]
+mod one_to_n_benches;
