@@ -1,11 +1,11 @@
 use std::cell::{Ref,RefMut};
 
 pub struct Resources<'a>{
-    world: &'a ::World
+    world: &'a ::World<'a>
 }
 
 impl<'a> Resources<'a>{
-    pub fn new(world: &::World) -> Resources{
+    pub fn new(world: &'a ::World<'a>) -> Resources{
         Resources{ world }
     }
 

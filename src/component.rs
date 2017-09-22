@@ -1,22 +1,25 @@
-use ::Storage;
+use storage::Storage;
+use std::any::TypeId;
 
-pub trait Component: 'static + Sized {
-    type Storage: Storage<Self>;
+pub trait Component<'a>: 'a + Sized{
+    type Storage: Storage<'a,Self>;
+    type Key: 'static;
     fn type_name() -> &'static str;
+    fn type_id() -> TypeId{
+        TypeId::of::<Self::Key>()
+    }
 }
 
-pub trait ComponentSync: Component{}
-impl<C: Component + Send> ComponentSync for C{}
+pub trait ComponentSync<'a>: Component<'a>{}
+impl<'a, C: Component<'a> + Send> ComponentSync<'a> for C{}
 
-pub trait ComponentThreadLocal: Component{}
-impl<C: Component> ComponentThreadLocal for C{}
+pub trait ComponentThreadLocal<'a>: Component<'a>{}
+impl<'a, C: Component<'a>> ComponentThreadLocal<'a> for C{}
 
+pub trait OneToNComponent<'a>: 'a + Sized + Component<'a, Storage = ::DenseOneToNVec<Self>> where Self: Clone{}
 
-pub trait OneToNComponent: 'static + Sized + Component<Storage = ::DenseOneToNVec<Self>>{
-}
+pub trait OneToNComponentSync<'a>: OneToNComponent<'a> + Send{}
+impl<'a, C: OneToNComponent<'a> + Send> OneToNComponentSync<'a> for C{}
 
-pub trait OneToNComponentSync: OneToNComponent + Send{}
-impl<C: OneToNComponent + Send> OneToNComponentSync for C{}
-
-pub trait OneToNComponentThreadLocal: OneToNComponent{}
-impl<C: OneToNComponent> OneToNComponentThreadLocal for C{}
+pub trait OneToNComponentThreadLocal<'a>: OneToNComponent<'a>{}
+impl<'a, C: OneToNComponent<'a>> OneToNComponentThreadLocal<'a> for C{}

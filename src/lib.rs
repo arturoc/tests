@@ -4,7 +4,6 @@
 #[cfg(test)]
 extern crate rayon;
 
-
 use sync::*;
 use storage::*;
 pub use storage::{Read, Write, Storage, IntoIter, IntoIterMut,

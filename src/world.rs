@@ -8,13 +8,13 @@ use std::mem;
 
 use ::Entity;
 use component::{ComponentSync, Component, ComponentThreadLocal};
-use storage::{Storage, HierarchicalStorage};
+use storage::{Storage, AnyStorage, HierarchicalStorage};
 use entity::{EntityBuilder, Entities, EntitiesThreadLocal};
 use sync::*;
 
-pub struct World{
-    storages: HashMap<TypeId, Box<Any>>,
-    storages_thread_local: HashMap<TypeId, Box<Any>>,
+pub struct World<'a>{
+    storages: HashMap<TypeId, Box<AnyStorage + 'a>>,
+    storages_thread_local: HashMap<TypeId, Box<AnyStorage + 'a>>,
     resources: HashMap<TypeId, Box<Any>>,
 
     next_guid: AtomicUsize,
@@ -22,14 +22,14 @@ pub struct World{
     entities_index_per_mask: RwLock<HashMap<usize, Vec<usize>>>,
     ordered_entities_index_per_mask: RwLock<HashMap<TypeId, HashMap<usize, Vec<usize>>>>,
     reverse_components_mask_index: HashMap<usize, TypeId>,
-    remove_components_mask_index: HashMap<usize, Box<Fn(&World, usize)>>,
+    remove_components_mask_index: HashMap<usize, Box<for<'b> Fn(&'b World<'a>, usize)>>,
 
     next_component_mask: AtomicUsize,
     pub(crate) components_mask_index: HashMap<TypeId, usize>,
 }
 
-impl World{
-    pub fn new() -> World{
+impl<'a> World<'a>{
+    pub fn new() -> World<'a>{
         World{
             storages: HashMap::new(),
             storages_thread_local: HashMap::new(),
@@ -45,9 +45,9 @@ impl World{
         }
     }
 
-    pub fn register<C: ComponentSync>(&mut self) {
-        let type_id = TypeId::of::<C>();
-        let storage = Box::new(RwLock::new(<C as Component>::Storage::new())) as Box<Any>;
+    pub fn register<C: ComponentSync<'a>>(&mut self) {
+        let type_id = C::type_id();
+        let storage = Box::new(RwLock::new(<C as Component<'a>>::Storage::new())) as Box<AnyStorage + 'a>;
         let next_mask_mut = self.next_component_mask.get_mut();
         let next_mask = *next_mask_mut;
         *next_mask_mut *= 2;
@@ -61,9 +61,9 @@ impl World{
         self.storages.insert(type_id, storage);
     }
 
-    pub fn register_thread_local<C: ComponentThreadLocal>(&mut self) {
-        let type_id = TypeId::of::<C>();
-        let storage = Box::new(RefCell::new(<C as Component>::Storage::new())) as Box<Any>;
+    pub fn register_thread_local<C: ComponentThreadLocal<'a>>(&mut self) {
+        let type_id = C::type_id();
+        let storage = Box::new(RefCell::new(<C as Component<'a>>::Storage::new())) as Box<AnyStorage + 'a>;
         let next_mask_mut = self.next_component_mask.get_mut();
         let next_mask = *next_mask_mut;
         *next_mask_mut *= 2;
@@ -78,16 +78,16 @@ impl World{
         self.storages_thread_local.insert(type_id, storage);
     }
 
-    pub fn create_entity(&mut self) -> EntityBuilder{
+    pub fn create_entity<'b>(&'b mut self) -> EntityBuilder<'a, 'b>{
         self.entities_index_per_mask.get_mut().unwrap().clear();
         EntityBuilder::new(self)
     }
 
-    pub fn entities(&self) -> Entities{
+    pub fn entities<'b>(&'b self) -> Entities<'a, 'b>{
         Entities::new(self)
     }
 
-    pub fn entities_thread_local(&self) -> EntitiesThreadLocal{
+    pub fn entities_thread_local<'b>(&'b self) -> EntitiesThreadLocal<'a, 'b>{
         EntitiesThreadLocal::new(self)
     }
 
@@ -95,7 +95,7 @@ impl World{
         &self.entities
     }
 
-    pub fn remove_component_from<C: ::Component>(&mut self, entity: &::Entity){
+    pub fn remove_component_from<C: ::Component<'a>>(&mut self, entity: &::Entity){
         {
             let storage = self.storage_mut::<C>();
             if let Some(mut storage) = storage{
@@ -104,7 +104,7 @@ impl World{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         }
-        self.entities[entity.guid()].components_mask &= !self.components_mask_index[&TypeId::of::<C>()];
+        self.entities[entity.guid()].components_mask &= !self.components_mask_index[&C::type_id()];
         let mask = self.components_mask::<C>();
         let type_id = self.reverse_components_mask_index[&mask];
         if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(&type_id){
@@ -120,9 +120,7 @@ impl World{
         while mask < self.next_component_mask.load(Ordering::Relaxed){
             if entity.components_mask & mask == mask{
                 // let storage = &self.storages[&type_id];
-                let remove_component = unsafe{
-                    mem::transmute::<&Box<Fn(&World, usize)>, &Box<Fn(&World, usize)>>(&self.remove_components_mask_index[&mask])
-                };
+                let remove_component = &self.remove_components_mask_index[&mask];
                 remove_component(self, entity.guid());
                 entity.components_mask &= !mask;
                 let type_id = self.reverse_components_mask_index[&mask];
@@ -167,23 +165,29 @@ impl World{
         self.entities.push(e)
     }
 
-    pub(crate) fn storage<C: ::Component>(&self) -> Option<RwLockReadGuard<<C as ::Component>::Storage>> {
-        self.storages.get(&TypeId::of::<C>()).map(|s| {
-            let s: &RwLock<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
+    pub(crate) fn storage<C: ::Component<'a>>(&self) -> Option<RwLockReadGuard<'a, <C as ::Component<'a>>::Storage>> {
+        let world = unsafe{ mem::transmute::<&World<'a>, &World<'a>>(self) };
+        world.storages.get(&C::type_id()).map(|s| {
+            let s: &'a AnyStorage = &**s;
+            let s: &RwLock<<C as ::Component<'a>>::Storage> = unsafe{ &*(s as *const AnyStorage as *const RwLock<<C as ::Component<'a>>::Storage>) };
             s.read().unwrap()
         })
     }
 
-    pub(crate) fn storage_mut<C: ::Component>(&self) -> Option<RwLockWriteGuard<<C as ::Component>::Storage>> {
-        self.storages.get(&TypeId::of::<C>()).map(|s| {
-            let s: &RwLock<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
+    pub(crate) fn storage_mut<C: ::Component<'a>>(&self) -> Option<RwLockWriteGuard<'a, <C as ::Component<'a>>::Storage>> {
+        let world = unsafe{ mem::transmute::<&World<'a>, &World<'a>>(self) };
+        world.storages.get(&C::type_id()).map(|s| {
+            let s: &'a AnyStorage = &**s;
+            let s: &RwLock<<C as ::Component<'a>>::Storage> = unsafe{ &*(s as *const AnyStorage as *const RwLock<<C as ::Component<'a>>::Storage>) };
             s.write().unwrap()
         })
     }
 
-    pub(crate) fn storage_thread_local<C: ::Component>(&self) -> Option<ReadGuardRef<<C as ::Component>::Storage>> {
-        let local = self.storages_thread_local.get(&TypeId::of::<C>()).map(|s| {
-            let s: &RefCell<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
+    pub(crate) fn storage_thread_local<C: ::Component<'a>>(&self) -> Option<ReadGuardRef<'a, <C as ::Component<'a>>::Storage>> {
+        let world = unsafe{ mem::transmute::<&World<'a>, &World<'a>>(self) };
+        let local = world.storages_thread_local.get(&C::type_id()).map(|s| {
+            let s: &'a AnyStorage = &**s;
+            let s: &RefCell<<C as ::Component<'a>>::Storage> = unsafe{ &*(s as *const AnyStorage as *const RefCell<<C as ::Component<'a>>::Storage>) };
             ReadGuard::ThreadLocal(s.borrow())
         });
         if local.is_some(){
@@ -193,9 +197,11 @@ impl World{
         }
     }
 
-    pub(crate) fn storage_thread_local_mut<C: ::Component>(&self) -> Option<WriteGuardRef<<C as ::Component>::Storage>> {
-        let local = self.storages_thread_local.get(&TypeId::of::<C>()).map(|s| {
-            let s: &RefCell<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
+    pub(crate) fn storage_thread_local_mut<C: ::Component<'a>>(&self) -> Option<WriteGuardRef<'a, <C as ::Component<'a>>::Storage>> {
+        let world = unsafe{ mem::transmute::<&World<'a>, &World<'a>>(self) };
+        let local = world.storages_thread_local.get(&C::type_id()).map(|s| {
+            let s: &'a AnyStorage = &**s;
+            let s: &RefCell<<C as ::Component<'a>>::Storage> = unsafe{ &*(s as *const AnyStorage as *const RefCell<<C as ::Component<'a>>::Storage>) };
             WriteGuard::ThreadLocal(s.borrow_mut())
         });
         if local.is_some(){
@@ -205,8 +211,8 @@ impl World{
         }
     }
 
-    pub(crate) fn components_mask<C: ::Component>(&self) -> usize{
-        self.components_mask_index[&TypeId::of::<C>()]
+    pub(crate) fn components_mask<C: ::Component<'a>>(&self) -> usize{
+        self.components_mask_index[&C::type_id()]
     }
 
     pub(crate) fn entities_for_mask(&self, mask: usize) -> IndexGuard{
@@ -229,9 +235,10 @@ impl World{
         }
     }
 
-    pub(crate) fn ordered_entities_for<'a, C: Component>(&self, mask: usize) -> IndexGuard
-        where <C as Component>::Storage: ::HierarchicalStorage<C>{
-        if !self.ordered_entities_index_per_mask.write().unwrap().entry(TypeId::of::<<C as ::Component>::Storage>())
+    pub(crate) fn ordered_entities_for<C: Component<'a>>(&self, mask: usize) -> IndexGuard
+        where <C as Component<'a>>::Storage: ::HierarchicalStorage<'a,C>,
+              RwLock<<C as Component<'a>>::Storage>: AnyStorage{
+        if !self.ordered_entities_index_per_mask.write().unwrap().entry(C::type_id())
             .or_insert_with(|| HashMap::new())
             .contains_key(&mask){
             let entities = self.storage::<C>()
@@ -253,9 +260,10 @@ impl World{
         }
     }
 
-    pub(crate) fn thread_local_ordered_entities_for<'a, C: Component>(&self, mask: usize) -> IndexGuard
-        where <C as Component>::Storage: ::HierarchicalStorage<C>{
-        if !self.ordered_entities_index_per_mask.write().unwrap().entry(TypeId::of::<<C as ::Component>::Storage>())
+    pub(crate) fn thread_local_ordered_entities_for<C: Component<'a>>(&self, mask: usize) -> IndexGuard
+        where <C as Component<'a>>::Storage: ::HierarchicalStorage<'a,C>,
+              RwLock<<C as Component<'a>>::Storage>: AnyStorage{
+        if !self.ordered_entities_index_per_mask.write().unwrap().entry(C::type_id())
             .or_insert_with(|| HashMap::new())
             .contains_key(&mask){
             let entities = self.storage_thread_local::<C>()

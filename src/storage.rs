@@ -1,6 +1,6 @@
-use std::sync::{RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::marker;
-use std::cell::UnsafeCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::mem;
 use std::slice;
 
@@ -12,13 +12,28 @@ use ::World;
 use ::IndexGuard;
 use ::Entity;
 
-pub trait Storage<T>{
+pub unsafe trait AnyStorage{}
+
+
+impl AnyStorage{
+    #[inline]
+    pub unsafe fn downcast_ref<'a, T: AnyStorage + 'a>(&self) -> &'a T {
+        &*(self as *const AnyStorage as *const T)
+    }
+}
+
+unsafe impl<S: AnyStorage> AnyStorage for RwLock<S>{}
+unsafe impl<S: AnyStorage> AnyStorage for RefCell<S>{}
+
+pub trait Storage<'a,T>: AnyStorage{
+    type Get;
+    type GetMut;
     fn new() -> Self;
     fn with_capacity(usize) -> Self;
     fn insert(&mut self, guid: usize, t: T);
     fn remove(&mut self, guid: usize);
-    unsafe fn get(&self, guid: usize) -> &T;
-    unsafe fn get_mut(&mut self, guid: usize) -> &mut T;
+    unsafe fn get(&'a self, guid: usize) -> Self::Get;
+    unsafe fn get_mut(&'a mut self, guid: usize) -> Self::GetMut;
 }
 
 pub trait IntoIter{
@@ -31,23 +46,23 @@ pub trait IntoIterMut{
     fn into_iter_mut(self) -> Self::IterMut;
 }
 
-pub struct Read<'a, T: 'a + Component>{
+pub struct Read<'a, T: 'a + Component<'a>>{
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct Write<'a, T: 'a + Component>{
+pub struct Write<'a, T: 'a + Component<'a>>{
     _marker: marker::PhantomData<&'a T>,
 }
 
 pub struct ReadEntities;
 
 // Sync Read/Write
-pub struct StorageRead<'a, S: Storage<T> + 'a, T: 'a + ComponentSync>{
+pub struct StorageRead<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync<'a>>{
     storage: RwLockReadGuard<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct StorageWrite<'a, S: Storage<T> + 'a, T: 'a + ComponentSync>{
+pub struct StorageWrite<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync<'a>>{
     storage: UnsafeCell<RwLockWriteGuard<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
@@ -56,44 +71,52 @@ pub trait StorageRef<'a, T>{
     fn get(&self, guid: usize) -> T;
 }
 
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, &'a T> for StorageRead<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a T{
-        unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, <S as Storage<'a,T>>::Get> for StorageRead<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::Get{
+        // unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
+
+        let storage = unsafe{ mem::transmute::<&S, &S>(&self.storage) };
+        unsafe{ storage.get(guid) }
     }
 }
 
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, &'a mut T> for StorageWrite<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a mut T{
-        unsafe{ mem::transmute::<&mut T, &mut T>( (*self.storage.get()).get_mut(guid) ) }
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, <S as Storage<'a,T>>::GetMut> for StorageWrite<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::GetMut{
+        // unsafe{ mem::transmute::<&mut T, &mut T>( (*self.storage.get()).get_mut(guid) ) }
+
+
+        let storage = unsafe{ mem::transmute::<&mut S, &mut S>(&mut (*self.storage.get())) };
+        unsafe{ storage.get_mut(guid) }
     }
 }
 
-pub trait UnorderedData<'a>{
+pub trait UnorderedData<'a, 'b> where 'a: 'b{
     type Iter;
     type Components: 'a;
     type ComponentsRef;
     type Storage;
-    fn components_mask(world: &'a World) -> usize;
-    fn into_iter(world: &'a ::World) -> Self::Iter;
-    fn storage(world: &'a ::World) -> Self::Storage;
+    fn components_mask(world: &'b World<'a>) -> usize;
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter;
+    fn storage(world: &'b ::World<'a>) -> Self::Storage;
 }
 
-impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Read<'a,T>
-    where for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoIter
+impl<'a, 'b, T: 'a + ComponentSync<'a>> UnorderedData<'a, 'b> for Read<'a,T>
+    where for<'c> RwLockReadGuard<'c, <T as Component<'a>>::Storage>: IntoIter,
+    'a: 'b,
 {
-    type Iter = <RwLockReadGuard<'a, <T as Component>::Storage> as IntoIter>::Iter;
+    type Iter = <RwLockReadGuard<'a, <T as Component<'a>>::Storage> as IntoIter>::Iter;
     type Components = T;
-    type ComponentsRef = &'a T;
-    type Storage = StorageRead<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type ComponentsRef = <<T as Component<'a>>::Storage as Storage<'a,T>>::Get;
+    type Storage = StorageRead<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         world.storage::<T>().unwrap().into_iter()
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         StorageRead{
             storage: world.storage::<T>().unwrap(),
             _marker: marker::PhantomData,
@@ -101,22 +124,23 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Read<'a,T>
     }
 }
 
-impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Write<'a,T>
-    where for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoIterMut
+impl<'a, 'b, T: 'a + ComponentSync<'a>> UnorderedData<'a, 'b> for Write<'a,T>
+    where for<'c> RwLockWriteGuard<'c, <T as Component<'a>>::Storage>: IntoIterMut,
+    'a: 'b,
 {
-    type Iter = <RwLockWriteGuard<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
+    type Iter = <RwLockWriteGuard<'a, <T as Component<'a>>::Storage> as IntoIterMut>::IterMut;
     type Components = T;
-    type ComponentsRef = &'a mut T;
-    type Storage = StorageWrite<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type ComponentsRef = <<T as Component<'a>>::Storage as Storage<'a,T>>::GetMut;
+    type Storage = StorageWrite<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         world.storage_mut::<T>().unwrap().into_iter_mut()
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         StorageWrite{
             storage: UnsafeCell::new(world.storage_mut::<T>().unwrap()),
             _marker: marker::PhantomData,
@@ -137,73 +161,80 @@ impl<'a> StorageRef<'a, &'a Entity> for &'a [Entity]{
     }
 }
 
-impl<'a> UnorderedData<'a> for ReadEntities {
-    type Iter = slice::Iter<'a,Entity>;
+impl<'a, 'b> UnorderedData<'a, 'b> for ReadEntities
+    where 'a: 'b,
+{
+    type Iter = slice::Iter<'b,Entity>;
     type Components = Entity;
-    type ComponentsRef = &'a Entity;
-    type Storage = &'a [Entity];
-    fn components_mask(_world: &'a World) -> usize{
+    type ComponentsRef = &'b Entity;
+    type Storage = &'b [Entity];
+    fn components_mask(_world: &'b World<'a>) -> usize{
         0
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         world.entities_ref().iter()
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         world.entities_ref()
     }
 }
 
 // Thread local Read/Write
-pub struct StorageReadLocal<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal>{
+pub struct StorageReadLocal<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>>{
     storage: ReadGuardRef<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct StorageWriteLocal<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal>{
+pub struct StorageWriteLocal<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>>{
     storage: UnsafeCell<WriteGuardRef<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, &'a T> for StorageReadLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a T{
-        unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>> StorageRef<'a, <S as Storage<'a,T>>::Get> for StorageReadLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::Get{
+        //unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
+        let storage = unsafe{ mem::transmute::<&S, &S>(&self.storage) };
+        unsafe{ storage.get(guid) }
     }
 }
 
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, &'a mut T> for StorageWriteLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a mut T{
-        unsafe{ mem::transmute::<&mut T, &mut T>((*self.storage.get()).get_mut(guid)) }
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>> StorageRef<'a, <S as Storage<'a,T>>::GetMut> for StorageWriteLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::GetMut{
+        // unsafe{ mem::transmute::<&mut T, &mut T>((*self.storage.get()).get_mut(guid)) }
+        let storage = unsafe{ mem::transmute::<&mut S, &mut S>(&mut (*self.storage.get())) };
+        unsafe{ storage.get_mut(guid) }
     }
 }
 
-pub trait UnorderedDataLocal<'a>{
+pub trait UnorderedDataLocal<'a, 'b> where 'a: 'b{
     type Iter;
     type Components: 'a;
     type ComponentsRef;
     type Storage;
-    fn components_mask(world: &'a World) -> usize;
-    fn into_iter(world: &'a ::World) -> Self::Iter;
-    fn storage(world: &'a ::World) -> Self::Storage;
+    fn components_mask(world: &'b World<'a>) -> usize;
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter;
+    fn storage(world: &'b ::World<'a>) -> Self::Storage;
 }
 
-impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Read<'a,T>
-    where for<'b> ReadGuardRef<'b, <T as Component>::Storage>: IntoIter
+impl<'a, 'b, T: 'a + ComponentThreadLocal<'a>> UnorderedDataLocal<'a, 'b> for Read<'a,T>
+    where for<'c> ReadGuardRef<'c, <T as Component<'a>>::Storage>: IntoIter,
+    'a: 'b,
 {
-    type Iter = <ReadGuardRef<'a, <T as Component>::Storage> as IntoIter>::Iter;
+    type Iter = <ReadGuardRef<'a, <T as Component<'a>>::Storage> as IntoIter>::Iter;
     type Components = T;
-    type ComponentsRef = &'a T;
-    type Storage = StorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type ComponentsRef = <<T as Component<'a>>::Storage as Storage<'a,T>>::Get;
+    type Storage = StorageReadLocal<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         world.storage_thread_local::<T>().unwrap().into_iter()
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         StorageReadLocal{
             storage: world.storage_thread_local::<T>().unwrap(),
             _marker: marker::PhantomData,
@@ -211,22 +242,23 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Read<'a,T>
     }
 }
 
-impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Write<'a,T>
-    where for<'b> WriteGuardRef<'b, <T as Component>::Storage>: IntoIterMut
+impl<'a, 'b, T: 'a + ComponentThreadLocal<'a>> UnorderedDataLocal<'a, 'b> for Write<'a,T>
+    where for<'c> WriteGuardRef<'c, <T as Component<'a>>::Storage>: IntoIterMut,
+    'a: 'b,
 {
-    type Iter = <WriteGuardRef<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
+    type Iter = <WriteGuardRef<'a, <T as Component<'a>>::Storage> as IntoIterMut>::IterMut;
     type Components = T;
-    type ComponentsRef = &'a mut T;
-    type Storage = StorageWriteLocal<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type ComponentsRef = <<T as Component<'a>>::Storage as Storage<'a,T>>::GetMut;
+    type Storage = StorageWriteLocal<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         world.storage_thread_local_mut::<T>().unwrap().into_iter_mut()
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         StorageWriteLocal{
             storage: UnsafeCell::new(world.storage_thread_local_mut::<T>().unwrap()),
             _marker: marker::PhantomData,
@@ -242,17 +274,18 @@ macro_rules! impl_combined_unordered_iter {
     ($iter: ident, $storage_ref: ident, $($t: ident, $s: ident, $u: ident),*) => (
 
         #[allow(non_snake_case, dead_code)]
-        pub struct $iter<'a,$($t, $s:'a,)*>{
-            ids: ::IndexGuard<'a>,
+        pub struct $iter<'a,'b,$($t, $s:'b,)*>{
+            ids: ::IndexGuard<'b>,
             ptr: *const usize,
             end: *const usize,
             $(
                 $s: $s,
                 $t: marker::PhantomData<$t>,
             )*
+            marker: marker::PhantomData<&'a usize>
         }
 
-        impl<'a, $($t, $s: ::StorageRef<'a, $t> + 'a,)*> Iterator for $iter<'a,$($t, $s,)*>{
+        impl<'a,'b, $($t, $s: ::StorageRef<'a, $t> + 'a,)*> Iterator for $iter<'a,'b,$($t, $s,)*>{
             type Item = ($($t),*);
             fn next(&mut self) -> Option<Self::Item>{
                 // if self.next == self.entities.len(){
@@ -298,33 +331,34 @@ macro_rules! impl_combined_unordered_iter {
             }
         }
 
-        impl<'a, $($u: ::UnorderedData<'a>),* > ::UnorderedData<'a> for ($($u),*)
+        impl<'a, 'b, $($u: ::UnorderedData<'a, 'b>),* > ::UnorderedData<'a, 'b> for ($($u),*)
             where $(
-                <$u as ::UnorderedData<'a>>::Storage: 'a,
-                $u: 'a,
+                <$u as ::UnorderedData<'a, 'b>>::Storage: 'b,
+                $u: 'b,
             )*
+            'a: 'b,
         {
-            type Iter = $iter<'a, $(
-                <$u as ::UnorderedData<'a>>::ComponentsRef, <$u as ::UnorderedData<'a>>::Storage,
+            type Iter = $iter<'a, 'b, $(
+                <$u as ::UnorderedData<'a, 'b>>::ComponentsRef, <$u as ::UnorderedData<'a, 'b>>::Storage,
             )*>;
 
             type Components = ($(
-                <$u as ::UnorderedData<'a>>::Components
+                <$u as ::UnorderedData<'a, 'b>>::Components
             ),*);
 
             type ComponentsRef = ($(
-                <$u as ::UnorderedData<'a>>::ComponentsRef
+                <$u as ::UnorderedData<'a, 'b>>::ComponentsRef
             ),*);
 
             type Storage = $storage_ref<$(
-                <$u as ::UnorderedData<'a>>::Storage
+                <$u as ::UnorderedData<'a, 'b>>::Storage
             ),*>;
 
-            fn components_mask(world: &'a ::World) -> usize {
+            fn components_mask(world: &'b ::World<'a>) -> usize {
                 $($u::components_mask(world)) | *
             }
 
-            fn into_iter(world: &'a ::World) -> Self::Iter{
+            fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
                 let ids = world.entities_for_mask(Self::components_mask(world));
                 $iter{
                     // next: 0,
@@ -335,10 +369,11 @@ macro_rules! impl_combined_unordered_iter {
                         $s: $u::storage(world),
                         $t: marker::PhantomData,
                     )*
+                    marker: marker::PhantomData
                 }
             }
 
-            fn storage(world: &'a ::World) -> Self::Storage{
+            fn storage(world: &'b ::World<'a>) -> Self::Storage{
                 $storage_ref{
                     $(
                         $s: $u::storage(world),
@@ -347,33 +382,34 @@ macro_rules! impl_combined_unordered_iter {
             }
         }
 
-        impl<'a, $($u: ::UnorderedDataLocal<'a>),* > ::UnorderedDataLocal<'a> for ($($u),*)
+        impl<'a, 'b, $($u: ::UnorderedDataLocal<'a, 'b>),* > ::UnorderedDataLocal<'a, 'b> for ($($u),*)
             where $(
-                <$u as ::UnorderedDataLocal<'a>>::Storage: 'a,
-                $u: 'a,
+                <$u as ::UnorderedDataLocal<'a, 'b>>::Storage: 'b,
+                $u: 'b,
             )*
+            'a: 'b
         {
-            type Iter = $iter<'a, $(
-                <$u as ::UnorderedDataLocal<'a>>::ComponentsRef, <$u as ::UnorderedDataLocal<'a>>::Storage,
+            type Iter = $iter<'a,'b, $(
+                <$u as ::UnorderedDataLocal<'a, 'b>>::ComponentsRef, <$u as ::UnorderedDataLocal<'a, 'b>>::Storage,
             )*>;
 
             type Components = ($(
-                <$u as ::UnorderedDataLocal<'a>>::Components
+                <$u as ::UnorderedDataLocal<'a, 'b>>::Components
             ),*);
 
             type ComponentsRef = ($(
-                <$u as ::UnorderedDataLocal<'a>>::ComponentsRef
+                <$u as ::UnorderedDataLocal<'a, 'b>>::ComponentsRef
             ),*);
 
             type Storage = $storage_ref<$(
-                <$u as ::UnorderedDataLocal<'a>>::Storage
+                <$u as ::UnorderedDataLocal<'a, 'b>>::Storage
             ),*>;
 
-            fn components_mask(world: &'a ::World) -> usize {
+            fn components_mask(world: &'b ::World<'a>) -> usize {
                 $($u::components_mask(world)) | *
             }
 
-            fn into_iter(world: &'a ::World) -> Self::Iter{
+            fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
                 let ids = world.entities_for_mask(Self::components_mask(world));
                 $iter{
                     // ids: world.entities_for_mask(Self::components_mask(world)),
@@ -385,10 +421,11 @@ macro_rules! impl_combined_unordered_iter {
                         $s: $u::storage(world),
                         $t: marker::PhantomData,
                     )*
+                    marker: marker::PhantomData
                 }
             }
 
-            fn storage(world: &'a ::World) -> Self::Storage{
+            fn storage(world: &'b ::World<'a>) -> Self::Storage{
                 $storage_ref{
                     $(
                         $s: $u::storage(world),
@@ -459,206 +496,210 @@ impl<'a,T:'a,I> IntoHierarchicalIterMut<'a,T> for I
     }
 }
 
-pub trait HierarchicalStorage<T>: Storage<T>{
+pub trait HierarchicalStorage<'a,T>: Storage<'a,T>{
     unsafe fn insert_child(&mut self, parent_guid: usize, guid: usize, value: T);
     unsafe fn get_node(&self, guid: usize) -> idtree::NodeIdRef<T>;
     unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeIdMut<T>;
     fn ordered_ids(&self) -> &[usize];
 }
 
-pub struct ReadHierarchical<'a, T: 'a + Component>{
+pub struct ReadHierarchical<'a, T: 'a + Component<'a>>{
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct WriteHierarchical<'a, T: 'a + Component>{
+pub struct WriteHierarchical<'a, T: 'a + Component<'a>>{
     _marker: marker::PhantomData<&'a T>,
 }
 
 
 // Sync Hierarchical Read/Write
-pub struct HierarchicalStorageRead<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync>{
+pub struct HierarchicalStorageRead<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>>{
     storage: RwLockReadGuard<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct HierarchicalStorageWrite<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync>{
+pub struct HierarchicalStorageWrite<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>>{
     storage: UnsafeCell<RwLockWriteGuard<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeIdRef<'a, T>> for HierarchicalStorageRead<'a, S, T>{
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeIdRef<'a, T>> for HierarchicalStorageRead<'a, S, T>{
     fn get(&self, guid: usize) -> idtree::NodeIdRef<'a, T>{
         unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(self.storage.get_node(guid)) }
     }
 }
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeIdMut<'a, T>> for HierarchicalStorageWrite<'a, S, T>{
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeIdMut<'a, T>> for HierarchicalStorageWrite<'a, S, T>{
     fn get(&self, guid: usize) -> idtree::NodeIdMut<'a, T>{
         unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>((*self.storage.get()).get_node_mut(guid)) }
     }
 }
 
 
-pub trait OrderedData<'a>{
+pub trait OrderedData<'a, 'b> where 'a: 'b{
     type Iter;
     type Components: 'a;
     type ComponentsRef;
     type Storage;
-    fn components_mask(world: &'a World) -> usize;
-    fn into_iter(world: &'a ::World) -> Self::Iter;
-    fn storage(world: &'a ::World) -> Self::Storage;
-    fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard;
+    fn components_mask(world: &'b World<'a>) -> usize;
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter;
+    fn storage(world: &'b ::World<'a>) -> Self::Storage;
+    fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>;
 }
 
 
-impl<'a, T: 'a + ComponentSync> OrderedData<'a> for ReadHierarchical<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoOrderedIter
+impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedData<'a, 'b> for ReadHierarchical<'a,T>
+    where <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'c> RwLockReadGuard<'c, <T as Component<'a>>::Storage>: IntoOrderedIter,
+          'a: 'b,
 {
-    type Iter = <RwLockReadGuard<'a, <T as Component>::Storage> as IntoOrderedIter>::OrderedIter;
+    type Iter = <RwLockReadGuard<'a, <T as Component<'a>>::Storage> as IntoOrderedIter>::OrderedIter;
     type Components = T;
     type ComponentsRef = idtree::NodeIdRef<'a, T>;
-    type Storage = HierarchicalStorageRead<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type Storage = HierarchicalStorageRead<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         world.storage::<T>().unwrap().into_ordered_iter()
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         HierarchicalStorageRead{
             storage: world.storage::<T>().unwrap(),
             _marker: marker::PhantomData,
         }
     }
 
-    fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard{
+    fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>{
         world.ordered_entities_for::<T>(mask)
     }
 }
 
 
-impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteHierarchical<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoOrderedIterMut
+impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedData<'a, 'b> for WriteHierarchical<'a,T>
+    where <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'c> RwLockWriteGuard<'c, <T as Component<'a>>::Storage>: IntoOrderedIterMut,
+          'a: 'b,
 {
-    type Iter = <RwLockWriteGuard<'a, <T as Component>::Storage> as IntoOrderedIterMut>::OrderedIterMut;
+    type Iter = <RwLockWriteGuard<'a, <T as Component<'a>>::Storage> as IntoOrderedIterMut>::OrderedIterMut;
     type Components = T;
     type ComponentsRef = idtree::NodeIdMut<'a, T>;
-    type Storage = HierarchicalStorageWrite<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type Storage = HierarchicalStorageWrite<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         world.storage_mut::<T>().unwrap().into_ordered_iter_mut()
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         HierarchicalStorageWrite{
             storage: UnsafeCell::new(world.storage_mut::<T>().unwrap()),
             _marker: marker::PhantomData,
         }
     }
 
-    fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard{
+    fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>{
         world.ordered_entities_for::<T>(mask)
     }
 }
 
 // Local Hierarchical Read/Write
-pub struct HierarchicalStorageReadLocal<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentThreadLocal>{
+pub struct HierarchicalStorageReadLocal<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>>{
     storage: ReadGuardRef<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct HierarchicalStorageWriteLocal<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentThreadLocal>{
+pub struct HierarchicalStorageWriteLocal<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>>{
     storage: UnsafeCell<WriteGuardRef<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeIdRef<'a, T>> for HierarchicalStorageReadLocal<'a, S, T>{
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeIdRef<'a, T>> for HierarchicalStorageReadLocal<'a, S, T>{
     fn get(&self, guid: usize) -> idtree::NodeIdRef<'a, T>{
         unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(self.storage.get_node(guid)) }
     }
 }
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeIdMut<'a, T>> for HierarchicalStorageWriteLocal<'a, S, T>{
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeIdMut<'a, T>> for HierarchicalStorageWriteLocal<'a, S, T>{
     fn get(&self, guid: usize) -> idtree::NodeIdMut<'a, T>{
         unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>((*self.storage.get()).get_node_mut(guid)) }
     }
 }
 
 
-pub trait OrderedDataLocal<'a>{
+pub trait OrderedDataLocal<'a,'b> where 'a: 'b{
     type Iter;
     type Components: 'a;
     type ComponentsRef;
     type Storage;
-    fn components_mask(world: &'a World) -> usize;
-    fn into_iter(world: &'a ::World) -> Self::Iter;
-    fn storage(world: &'a ::World) -> Self::Storage;
-    fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard;
+    fn components_mask(world: &'b World<'a>) -> usize;
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter;
+    fn storage(world: &'b ::World<'a>) -> Self::Storage;
+    fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>;
 }
 
 
-impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for ReadHierarchical<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> ReadGuardRef<'b, <T as Component>::Storage>: IntoOrderedIter
+impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedDataLocal<'a, 'b> for ReadHierarchical<'a,T>
+    where <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'c> ReadGuardRef<'c, <T as Component<'a>>::Storage>: IntoOrderedIter,
+          'a: 'b,
 {
-    type Iter = <ReadGuardRef<'a, <T as Component>::Storage> as IntoOrderedIter>::OrderedIter;
+    type Iter = <ReadGuardRef<'a, <T as Component<'a>>::Storage> as IntoOrderedIter>::OrderedIter;
     type Components = T;
     type ComponentsRef = idtree::NodeIdRef<'a, T>;
-    type Storage = HierarchicalStorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type Storage = HierarchicalStorageReadLocal<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         world.storage_thread_local::<T>().unwrap().into_ordered_iter()
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         HierarchicalStorageReadLocal{
             storage: world.storage_thread_local::<T>().unwrap(),
             _marker: marker::PhantomData,
         }
     }
 
-    fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard{
+    fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>{
         world.thread_local_ordered_entities_for::<T>(mask)
     }
 }
 
 
-impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for WriteHierarchical<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> WriteGuardRef<'b, <T as Component>::Storage>: IntoOrderedIterMut
+impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedDataLocal<'a,'b> for WriteHierarchical<'a,T>
+    where <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'c> WriteGuardRef<'c, <T as Component<'a>>::Storage>: IntoOrderedIterMut,
+          'a: 'b,
 {
-    type Iter = <WriteGuardRef<'a, <T as Component>::Storage> as IntoOrderedIterMut>::OrderedIterMut;
+    type Iter = <WriteGuardRef<'a, <T as Component<'a>>::Storage> as IntoOrderedIterMut>::OrderedIterMut;
     type Components = T;
     type ComponentsRef = idtree::NodeIdMut<'a, T>;
-    type Storage = HierarchicalStorageWriteLocal<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type Storage = HierarchicalStorageWriteLocal<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         world.storage_thread_local_mut::<T>().unwrap().into_ordered_iter_mut()
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         HierarchicalStorageWriteLocal{
             storage: UnsafeCell::new(world.storage_thread_local_mut::<T>().unwrap()),
             _marker: marker::PhantomData,
         }
     }
 
-    fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard{
+    fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>{
         world.thread_local_ordered_entities_for::<T>(mask)
     }
 }
@@ -670,8 +711,8 @@ macro_rules! impl_combined_ordered_iter {
     ($iter: ident, $storage_ref: ident, $to:ident, $so:ident, $uo:ident, $($t: ident, $s: ident, $u: ident),*) => (
 
         #[allow(non_snake_case, dead_code)]
-        pub struct $iter<'a,$to,$so,$($t, $s:'a,)*>{
-            ids: ::IndexGuard<'a>,
+        pub struct $iter<'a,'b, $to,$so,$($t, $s:'b,)*>{
+            ids: ::IndexGuard<'b>,
             ptr: *const usize,
             end: *const usize,
             $so: $so,
@@ -680,9 +721,10 @@ macro_rules! impl_combined_ordered_iter {
                 $s: $s,
                 $t: marker::PhantomData<$t>,
             )*
+            marker: marker::PhantomData<&'a usize>
         }
 
-        impl<'a, $to, $so: ::StorageRef<'a,$to> + 'a, $($t, $s: ::StorageRef<'a, $t> + 'a,)*> Iterator for $iter<'a, $to, $so, $($t, $s,)*>{
+        impl<'a, 'b, $to, $so: ::StorageRef<'a,$to> + 'a, $($t, $s: ::StorageRef<'a, $t> + 'a,)*> Iterator for $iter<'a, 'b, $to, $so, $($t, $s,)*>{
             type Item = ($to,$($t),*);
             fn next(&mut self) -> Option<Self::Item>{
                 // if self.next == self.entities.len(){
@@ -729,44 +771,45 @@ macro_rules! impl_combined_ordered_iter {
             }
         }
 
-        impl<'a, $uo: ::OrderedData<'a>, $($u: ::UnorderedData<'a>),* > ::OrderedData<'a> for ($uo, $($u),*)
+        impl<'a, 'b, $uo: ::OrderedData<'a, 'b>, $($u: ::UnorderedData<'a, 'b>),* > ::OrderedData<'a, 'b> for ($uo, $($u),*)
             where
-            <$uo as ::OrderedData<'a>>::Storage: 'a,
-            $uo: 'a,
+            <$uo as ::OrderedData<'a, 'b>>::Storage: 'b,
+            $uo: 'b,
             $(
-                <$u as ::UnorderedData<'a>>::Storage: 'a,
-                $u: 'a,
+                <$u as ::UnorderedData<'a, 'b>>::Storage: 'b,
+                $u: 'b,
             )*
+            'a: 'b
         {
-            type Iter = $iter<'a,
-                <$uo as ::OrderedData<'a>>::ComponentsRef, <$uo as ::OrderedData<'a>>::Storage,
+            type Iter = $iter<'a, 'b,
+                <$uo as ::OrderedData<'a, 'b>>::ComponentsRef, <$uo as ::OrderedData<'a, 'b>>::Storage,
                 $(
-                    <$u as ::UnorderedData<'a>>::ComponentsRef, <$u as ::UnorderedData<'a>>::Storage,
+                    <$u as ::UnorderedData<'a, 'b>>::ComponentsRef, <$u as ::UnorderedData<'a, 'b>>::Storage,
                 )*>;
 
             type Components =
-                (<$uo as ::OrderedData<'a>>::Components,
+                (<$uo as ::OrderedData<'a, 'b>>::Components,
                 $(
-                    <$u as ::UnorderedData<'a>>::Components
+                    <$u as ::UnorderedData<'a, 'b>>::Components
                 ),*);
 
             type ComponentsRef =
-                (<$uo as ::OrderedData<'a>>::ComponentsRef,
+                (<$uo as ::OrderedData<'a, 'b>>::ComponentsRef,
                 $(
-                    <$u as ::UnorderedData<'a>>::ComponentsRef
+                    <$u as ::UnorderedData<'a, 'b>>::ComponentsRef
                 ),*);
 
             type Storage = $storage_ref<
-                <$uo as ::OrderedData<'a>>::Storage,
+                <$uo as ::OrderedData<'a, 'b>>::Storage,
                 $(
-                    <$u as ::UnorderedData<'a>>::Storage
+                    <$u as ::UnorderedData<'a, 'b>>::Storage
                 ),*>;
 
-            fn components_mask(world: &'a ::World) -> usize {
+            fn components_mask(world: &'b ::World<'a>) -> usize {
                 $uo::components_mask(world) | $($u::components_mask(world)) | *
             }
 
-            fn into_iter(world: &'a ::World) -> Self::Iter{
+            fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
                 let ids = $uo::ordered_ids(world, Self::components_mask(world));
                 $iter{
                     // next: 0,
@@ -779,10 +822,11 @@ macro_rules! impl_combined_ordered_iter {
                         $s: $u::storage(world),
                         $t: marker::PhantomData,
                     )*
+                    marker: marker::PhantomData,
                 }
             }
 
-            fn storage(world: &'a ::World) -> Self::Storage{
+            fn storage(world: &'b ::World<'a>) -> Self::Storage{
                 $storage_ref{
                     $so: $uo::storage(world),
                     $(
@@ -791,49 +835,50 @@ macro_rules! impl_combined_ordered_iter {
                 }
             }
 
-            fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard{
+            fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>{
                 $uo::ordered_ids(world, mask)
             }
         }
 
-        impl<'a, $uo: ::OrderedDataLocal<'a>, $($u: ::UnorderedDataLocal<'a>),* > ::OrderedDataLocal<'a> for ($uo, $($u),*)
+        impl<'a, 'b, $uo: ::OrderedDataLocal<'a, 'b>, $($u: ::UnorderedDataLocal<'a, 'b>),* > ::OrderedDataLocal<'a, 'b> for ($uo, $($u),*)
             where
-                <$uo as ::OrderedDataLocal<'a>>::Storage: 'a,
-                $uo: 'a,
+                <$uo as ::OrderedDataLocal<'a, 'b>>::Storage: 'b,
+                $uo: 'b,
                 $(
-                    <$u as ::UnorderedDataLocal<'a>>::Storage: 'a,
-                    $u: 'a,
+                    <$u as ::UnorderedDataLocal<'a, 'b>>::Storage: 'b,
+                    $u: 'b,
                 )*
+                'a: 'b,
         {
-            type Iter = $iter<'a,
-                <$uo as ::OrderedDataLocal<'a>>::ComponentsRef, <$uo as ::OrderedDataLocal<'a>>::Storage,
+            type Iter = $iter<'a,'b,
+                <$uo as ::OrderedDataLocal<'a, 'b>>::ComponentsRef, <$uo as ::OrderedDataLocal<'a, 'b>>::Storage,
                 $(
-                    <$u as ::UnorderedDataLocal<'a>>::ComponentsRef, <$u as ::UnorderedDataLocal<'a>>::Storage,
+                    <$u as ::UnorderedDataLocal<'a, 'b>>::ComponentsRef, <$u as ::UnorderedDataLocal<'a, 'b>>::Storage,
                 )*>;
 
             type Components = (
-                <$uo as ::OrderedDataLocal<'a>>::Components,
+                <$uo as ::OrderedDataLocal<'a, 'b>>::Components,
                 $(
-                    <$u as ::UnorderedDataLocal<'a>>::Components
+                    <$u as ::UnorderedDataLocal<'a, 'b>>::Components
                 ),*);
 
             type ComponentsRef = (
-                <$uo as ::OrderedDataLocal<'a>>::ComponentsRef,
+                <$uo as ::OrderedDataLocal<'a, 'b>>::ComponentsRef,
                 $(
-                    <$u as ::UnorderedDataLocal<'a>>::ComponentsRef
+                    <$u as ::UnorderedDataLocal<'a, 'b>>::ComponentsRef
                 ),*);
 
             type Storage = $storage_ref<
-                <$uo as ::OrderedDataLocal<'a>>::Storage,
+                <$uo as ::OrderedDataLocal<'a, 'b>>::Storage,
                 $(
-                    <$u as ::UnorderedDataLocal<'a>>::Storage
+                    <$u as ::UnorderedDataLocal<'a, 'b>>::Storage
                 ),*>;
 
-            fn components_mask(world: &'a ::World) -> usize {
+            fn components_mask(world: &'b ::World<'a>) -> usize {
                 $uo::components_mask(world) | $($u::components_mask(world)) | *
             }
 
-            fn into_iter(world: &'a ::World) -> Self::Iter{
+            fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
                 let ids = world.entities_for_mask(Self::components_mask(world));
                 $iter{
                     // ids: world.entities_for_mask(Self::components_mask(world)),
@@ -847,10 +892,11 @@ macro_rules! impl_combined_ordered_iter {
                         $s: $u::storage(world),
                         $t: marker::PhantomData,
                     )*
+                    marker: marker::PhantomData
                 }
             }
 
-            fn storage(world: &'a ::World) -> Self::Storage{
+            fn storage(world: &'b ::World<'a>) -> Self::Storage{
                 $storage_ref{
                     $so: $uo::storage(world),
                     $(
@@ -859,7 +905,7 @@ macro_rules! impl_combined_ordered_iter {
                 }
             }
 
-            fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard{
+            fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>{
                 $uo::ordered_ids(world, mask)
             }
         }
@@ -890,21 +936,21 @@ mod combined_ordered{
 use forest::ForestHierarchicalIterMut;
 use forest::ForestHierarchicalIter;
 
-pub struct ReadAndParent<'a, T: 'a + Component>{
+pub struct ReadAndParent<'a, T: 'a + Component<'a>>{
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct WriteAndParent<'a, T: 'a + Component>{
+pub struct WriteAndParent<'a, T: 'a + Component<'a>>{
     _marker: marker::PhantomData<&'a T>,
 }
 
 
-pub struct ParentStorageRead<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync>{
+pub struct ParentStorageRead<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>>{
     storage: RwLockReadGuard<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, (&'a T, Option<&'a T>)> for ParentStorageRead<'a, S, T>{
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, (&'a T, Option<&'a T>)> for ParentStorageRead<'a, S, T>{
     fn get(&self, guid: usize) -> (&'a T, Option<&'a T>){
         let node = unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(self.storage.get_node(guid)) };
         let parent = node.parent().map(|p| unsafe{ mem::transmute::<&T, &T>(&p) });
@@ -912,17 +958,17 @@ impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, (
     }
 }
 
-pub struct ReadAndParentIter<'a, T: Component>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoHierarchicalIter<'b,T>
+pub struct ReadAndParentIter<'a, T: Component<'a>>
+    where <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'b> RwLockReadGuard<'b, <T as Component<'a>>::Storage>: IntoHierarchicalIter<'b,T>
 {
     it: ForestHierarchicalIter<'a, T> //<RwLockWriteGuard<'a, <T as Component>::Storage> as IntoOrderedIterMut>::OrderedIterMut
 }
 
 impl<'a,T> Iterator for ReadAndParentIter<'a, T>
-    where T: Component,
-          <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoHierarchicalIter<'b,T>,
+    where T: Component<'a>,
+          <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'b> RwLockReadGuard<'b, <T as Component<'a>>::Storage>: IntoHierarchicalIter<'b,T>,
 {
     type Item = (&'a T, Option<&'a T>);
     fn next(&mut self) -> Option<(&'a T, Option<&'a T>)>{
@@ -935,44 +981,45 @@ impl<'a,T> Iterator for ReadAndParentIter<'a, T>
 }
 
 
-impl<'a, T: 'a + ComponentSync> OrderedData<'a> for ReadAndParent<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoHierarchicalIter<'b,T>
+impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedData<'a, 'b> for ReadAndParent<'a,T>
+    where <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'c> RwLockReadGuard<'c, <T as Component<'a>>::Storage>: IntoHierarchicalIter<'c,T>,
+          'a: 'b,
 {
     type Iter = ReadAndParentIter<'a,T>;
     type Components = T;
     type ComponentsRef = (&'a T, Option<&'a T>);
-    type Storage = ParentStorageRead<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type Storage = ParentStorageRead<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         ReadAndParentIter{
             it: world.storage::<T>().unwrap().into_hierarchical_iter()
         }
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         ParentStorageRead{
             storage: world.storage::<T>().unwrap(),
             _marker: marker::PhantomData,
         }
     }
 
-    fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard{
+    fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>{
         world.ordered_entities_for::<T>(mask)
     }
 }
 
 
 
-pub struct ParentStorageWrite<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync>{
+pub struct ParentStorageWrite<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>>{
     storage: UnsafeCell<RwLockWriteGuard<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, (&'a mut T, Option<&'a T>)> for ParentStorageWrite<'a, S, T>{
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, (&'a mut T, Option<&'a T>)> for ParentStorageWrite<'a, S, T>{
     fn get(&self, guid: usize) -> (&'a mut T, Option<&'a T>){
         let mut node = unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>((*self.storage.get()).get_node_mut(guid)) };
         let parent = node.parent().map(|p| unsafe{ mem::transmute::<&T, &T>(&p) });
@@ -980,17 +1027,17 @@ impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, (
     }
 }
 
-pub struct WriteAndParentIter<'a, T: Component>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoHierarchicalIterMut<'b,T>
+pub struct WriteAndParentIter<'a, T: Component<'a>>
+    where <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'b> RwLockWriteGuard<'b, <T as Component<'a>>::Storage>: IntoHierarchicalIterMut<'b,T>
 {
     it: ForestHierarchicalIterMut<'a, T> //<RwLockWriteGuard<'a, <T as Component>::Storage> as IntoOrderedIterMut>::OrderedIterMut
 }
 
 impl<'a,T> Iterator for WriteAndParentIter<'a, T>
-    where T: Component,
-          <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoHierarchicalIterMut<'b,T>,
+    where T: Component<'a>,
+          <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'b> RwLockWriteGuard<'b, <T as Component<'a>>::Storage>: IntoHierarchicalIterMut<'b,T>,
 {
     type Item = (&'a mut T, Option<&'a T>);
     fn next(&mut self) -> Option<(&'a mut T, Option<&'a T>)>{
@@ -1002,32 +1049,33 @@ impl<'a,T> Iterator for WriteAndParentIter<'a, T>
     }
 }
 
-impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteAndParent<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
-          for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoHierarchicalIterMut<'b,T>
+impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedData<'a, 'b> for WriteAndParent<'a,T>
+    where <T as Component<'a>>::Storage: HierarchicalStorage<'a,T>,
+          for<'c> RwLockWriteGuard<'c, <T as Component<'a>>::Storage>: IntoHierarchicalIterMut<'c,T>,
+          'a: 'b,
 {
     type Iter = WriteAndParentIter<'a,T>;
     type Components = T;
     type ComponentsRef = (&'a mut T, Option<&'a T>);
-    type Storage = ParentStorageWrite<'a, <T as Component>::Storage, Self::Components>;
-    fn components_mask(world: &'a World) -> usize{
+    type Storage = ParentStorageWrite<'a, <T as Component<'a>>::Storage, Self::Components>;
+    fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
     }
 
-    fn into_iter(world: &'a ::World) -> Self::Iter{
+    fn into_iter(world: &'b ::World<'a>) -> Self::Iter{
         WriteAndParentIter{
             it: world.storage_mut::<T>().unwrap().into_hierarchical_iter_mut()
         }
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage{
+    fn storage(world: &'b ::World<'a>) -> Self::Storage{
         ParentStorageWrite{
             storage: UnsafeCell::new(world.storage_mut::<T>().unwrap()),
             _marker: marker::PhantomData,
         }
     }
 
-    fn ordered_ids(world: &'a ::World, mask: usize) -> IndexGuard{
+    fn ordered_ids(world: &'b ::World<'a>, mask: usize) -> IndexGuard<'b>{
         world.ordered_entities_for::<T>(mask)
     }
 }
@@ -1036,7 +1084,7 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteAndParent<'a,T>
 // OneToN
 // use component::{OneToNComponent, OneToNComponentSync, OneToNComponentThreadLocal};
 
-pub trait OneToNStorage<T>: Storage<T>{
+pub trait OneToNStorage<'a,T>: Storage<'a,T>{
     fn insert_slice(&mut self, guid: usize, t: &[T]) where T: Clone;
     unsafe fn get_slice(&self, guid: usize) -> &[T];
     unsafe fn get_slice_mut(&mut self, guid: usize) -> &mut [T];
@@ -1053,7 +1101,7 @@ pub trait OneToNStorage<T>: Storage<T>{
 // }
 //
 //
-// impl<'a, T: 'a + OneToNComponentSync> UnorderedData<'a> for ReadOneToN<'a,T>
+// impl<'a, T: 'a + OneToNComponentSync> UnorderedData<'a, 'b> for ReadOneToN<'a,T>
 //     where for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoIter
 // {
 //     type Iter = <RwLockReadGuard<'a, <T as Component>::Storage> as IntoIter>::Iter;
@@ -1077,7 +1125,7 @@ pub trait OneToNStorage<T>: Storage<T>{
 // }
 //
 //
-// impl<'a, T: 'a + OneToNComponentSync> UnorderedData<'a> for WriteOneToN<'a,T>
+// impl<'a, T: 'a + OneToNComponentSync> UnorderedData<'a, 'b> for WriteOneToN<'a,T>
 //     where for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoIterMut
 // {
 //     type Iter = <RwLockWriteGuard<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
@@ -1101,7 +1149,7 @@ pub trait OneToNStorage<T>: Storage<T>{
 // }
 //
 //
-// impl<'a, T: 'a + OneToNComponentThreadLocal> UnorderedDataLocal<'a> for ReadOneToN<'a,T>
+// impl<'a, T: 'a + OneToNComponentThreadLocal> UnorderedDataLocal<'a, 'b> for ReadOneToN<'a,T>
 //     where for<'b> ReadGuardRef<'b, <T as Component>::Storage>: IntoIter
 // {
 //     type Iter = <ReadGuardRef<'a, <T as Component>::Storage> as IntoIter>::Iter;
@@ -1125,7 +1173,7 @@ pub trait OneToNStorage<T>: Storage<T>{
 // }
 //
 //
-// impl<'a, T: 'a + OneToNComponentThreadLocal> UnorderedDataLocal<'a> for WriteOneToN<'a,T>
+// impl<'a, T: 'a + OneToNComponentThreadLocal> UnorderedDataLocal<'a, 'b> for WriteOneToN<'a,T>
 //     where for<'b> WriteGuardRef<'b, <T as Component>::Storage>: IntoIterMut
 // {
 //     type Iter = <WriteGuardRef<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;

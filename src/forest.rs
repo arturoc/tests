@@ -5,7 +5,7 @@ use std::cell::UnsafeCell;
 
 use idtree;
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
-use storage::{Storage, IntoIter, IntoIterMut, HierarchicalStorage, IntoOrderedIter, IntoOrderedIterMut};
+use storage::{Storage, AnyStorage, IntoIter, IntoIterMut, HierarchicalStorage, IntoOrderedIter, IntoOrderedIterMut};
 
 pub struct Forest<T>{
     arena: idtree::Arena<T>,
@@ -14,7 +14,10 @@ pub struct Forest<T>{
     ordered_ids: UnsafeCell<Vec<usize>>,
 }
 
-impl<T> Storage<T> for Forest<T>{
+impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
+    type Get = &'a T;
+    type GetMut = &'a mut T;
+
     fn new() -> Forest<T>{
         Forest{
             arena: idtree::Arena::new(),
@@ -65,6 +68,8 @@ impl<T> Storage<T> for Forest<T>{
         &mut self.arena[*node_id]
     }
 }
+
+unsafe impl<T> AnyStorage for Forest<T>{}
 
 pub struct Iter<'a, T: 'a>{
     _guard: ReadGuardRef<'a, Forest<T>>,
@@ -127,7 +132,7 @@ impl<'a, T> IntoIterMut for RwLockWriteGuard<'a, Forest<T>>{
 }
 
 
-impl<T> HierarchicalStorage<T> for Forest<T>{
+impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
     unsafe fn insert_child(&mut self, parent_guid: usize, guid: usize, value: T){
         let parent_id = *self.index.get_unchecked(parent_guid);
         let node_id = self.arena.get_mut(parent_id).append_new(value);

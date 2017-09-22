@@ -1,6 +1,3 @@
-use std::any::TypeId;
-use std::mem;
-
 use ::World;
 use ::Component;
 use ::ComponentSync;
@@ -26,14 +23,14 @@ impl Entity{
     }
 }
 
-pub struct EntityBuilder<'a>{
-    world: &'a mut World,
+pub struct EntityBuilder<'a, 'b> where 'a: 'b{
+    world: &'b mut World<'a>,
     guid: usize,
     components_mask: usize,
 }
 
-impl<'a> EntityBuilder<'a>{
-    pub fn new(world: &'a mut World) -> EntityBuilder{
+impl<'a, 'b> EntityBuilder<'a, 'b>{
+    pub fn new(world: &'b mut World<'a>) -> EntityBuilder<'a, 'b>{
         let next_guid = world.next_guid();
         EntityBuilder{
             guid: next_guid,
@@ -51,47 +48,47 @@ impl<'a> EntityBuilder<'a>{
         entity
     }
 
-    pub fn add<C: ComponentSync + 'a>(&mut self, component: C) -> &mut Self {
+    pub fn add<C: ComponentSync<'a> + 'a>(&mut self, component: C) -> &mut Self {
         {
             let storage = self.world.storage_mut::<C>();
             if let Some(mut storage) = storage{
                 storage.insert(self.guid, component)
             }else{
-                panic!("Trying to add component of type {} without registering first", "type_name");//C::type_name())
+                panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&C::type_id()];
         self
     }
 
-    pub fn add_thread_local<C: ComponentThreadLocal>(&mut self, component: C) -> &mut Self {
+    pub fn add_thread_local<C: ComponentThreadLocal<'a>>(&mut self, component: C) -> &mut Self {
         {
             let storage = self.world.storage_thread_local_mut::<C>();
             if let Some(mut storage) = storage{
                 storage.insert(self.guid, component)
             }else{
-                panic!("Trying to add component of type {} without registering first", "type_name");//C::type_name())
+                panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&C::type_id()];
         self
     }
 
-    pub fn add_child<C: ComponentSync>(&mut self, parent: Entity, component: C) -> &mut Self
-        where <C as Component>::Storage: HierarchicalStorage<C>{
+    pub fn add_child<C: ComponentSync<'a>>(&mut self, parent: Entity, component: C) -> &mut Self
+        where <C as Component<'a>>::Storage: HierarchicalStorage<'a,C>{
     {
             let storage = self.world.storage_mut::<C>();
             if let Some(mut storage) = storage{
                 unsafe{ storage.insert_child(parent.guid, self.guid, component) }
             }else{
-                panic!("Trying to add component of type {} without registering first", "type_name");//C::type_name())
+                panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&C::type_id()];
         self
     }
 
-    pub fn add_slice<C: OneToNComponentSync + Clone>(&mut self, component: &[C]) -> &mut Self{
+    pub fn add_slice<C: OneToNComponentSync<'a> + Clone>(&mut self, component: &[C]) -> &mut Self{
         {
             let storage = self.world.storage_mut::<C>();
             if let Some(mut storage) = storage{
@@ -100,61 +97,63 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&C::type_id()];
         self
     }
 }
 
 
-pub struct Entities<'a>{
-    world: &'a ::World,
+pub struct Entities<'a, 'b> where 'a: 'b{
+    world: &'b ::World<'a>,
 }
 
 
-unsafe impl<'a> Send for Entities<'a>{}
-unsafe impl<'a> Sync for Entities<'a>{}
+unsafe impl<'a, 'b> Send for Entities<'a, 'b>{}
+unsafe impl<'a, 'b> Sync for Entities<'a, 'b>{}
 
-impl<'a> Entities<'a>{
-    pub(crate) fn new(world: &World) -> Entities{
+impl<'a, 'b> Entities<'a, 'b>{
+    pub(crate) fn new(world: &'b World<'a>) -> Entities<'a, 'b>{
         Entities{ world }
     }
 
-    pub fn iter_for<S: UnorderedData<'a> + 'a>(&self) -> <S as UnorderedData<'a>>::Iter{
+    pub fn iter_for<S: UnorderedData<'a, 'b> + 'b>(&self) -> <S as UnorderedData<'a, 'b>>::Iter{
         S::into_iter(self.world)
     }
 
-    pub fn ordered_iter_for<S: OrderedData<'a> + 'a>(&self) -> <S as OrderedData<'a>>::Iter{
+    pub fn ordered_iter_for<S: OrderedData<'a, 'b> + 'b>(&self) -> <S as OrderedData<'a,'b>>::Iter{
         S::into_iter(self.world)
     }
 
-    pub fn component_for<C: ::ComponentSync>(&self, entity: Entity) -> &'a C{
-        let storage = self.world.storage::<C>()
-            .expect(&format!("Trying to use non registered type {}", "type name"));//C::type_name()));
-        unsafe{ mem::transmute::<&C, &C>( storage.get(entity.guid()) ) }
-    }
+    // pub fn component_for<C: ::ComponentSync<'a>>(&self, entity: Entity) -> <<C as Component<'a>>::Storage as Storage<'a, C>>::Get{
+    //     let storage = self.world.storage::<C>()
+    //         .expect(&format!("Trying to use non registered type {}", "type name"));//C::type_name()));
+    //     // unsafe{ storage.get(entity.guid()) }
+    //     unsafe{ storage.get(entity.guid()) }
+    // }
 }
 
 
-pub struct EntitiesThreadLocal<'a>{
-    world: &'a ::World,
+pub struct EntitiesThreadLocal<'a, 'b> where 'a: 'b{
+    world: &'b ::World<'a>,
 }
 
-impl<'a> EntitiesThreadLocal<'a>{
-    pub(crate) fn new(world: &World) -> EntitiesThreadLocal{
+impl<'a, 'b> EntitiesThreadLocal<'a, 'b>{
+    pub(crate) fn new(world: &'b World<'a>) -> EntitiesThreadLocal<'a,'b>{
         EntitiesThreadLocal{ world }
     }
 
-    pub fn iter_for<S: UnorderedDataLocal<'a> + 'a>(&self) -> <S as UnorderedDataLocal<'a>>::Iter{
+    pub fn iter_for<S: UnorderedDataLocal<'a,'b> + 'b>(&self) -> <S as UnorderedDataLocal<'a,'b>>::Iter{
         S::into_iter(self.world)
     }
 
-    pub fn ordered_iter_for<S: OrderedDataLocal<'a> + 'a>(&self) -> <S as OrderedDataLocal<'a>>::Iter{
+    pub fn ordered_iter_for<S: OrderedDataLocal<'a,'b> + 'b>(&self) -> <S as OrderedDataLocal<'a,'b>>::Iter{
         S::into_iter(self.world)
     }
 
-    pub fn component_for<C: ::ComponentThreadLocal>(&self, entity: Entity) -> &'a C{
-        let storage = self.world.storage_thread_local::<C>()
-            .expect(&format!("Trying to use non registered type {}", "type name"));//C::type_name()));
-        unsafe{ mem::transmute::<&C,&C>( storage.get(entity.guid()) )}
-    }
+    // pub fn component_for<C: ::ComponentThreadLocal<'a>>(&self, entity: Entity) -> <<C as Component<'a>>::Storage as Storage<'a, C>>::Get{
+    //     let storage = self.world.storage_thread_local::<C>()
+    //         .expect(&format!("Trying to use non registered type {}", "type name"));//C::type_name()));
+    //     unsafe{ storage.get(entity.guid()) }
+    //     // unsafe{ mem::transmute::<&C,&C>( storage.get(entity.guid()) )}
+    // }
 }

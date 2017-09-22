@@ -3,10 +3,11 @@ use std::marker;
 use std::mem;
 use std::slice;
 
-use storage::{Storage, OneToNStorage, IntoIter, IntoIterMut};
+use storage::{Storage, AnyStorage, OneToNStorage, IntoIter, IntoIterMut};
 use ::DenseVec;
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 
+#[derive(Debug,Copy,Clone,Eq,PartialEq)]
 struct Group{
     first_index: usize,
     len: usize,
@@ -18,14 +19,18 @@ pub struct DenseOneToNVec<T>{
     ids: Vec<usize>,
 }
 
-impl<T> OneToNStorage<T> for DenseOneToNVec<T>{
+impl<'a,T: 'a> OneToNStorage<'a,T> for DenseOneToNVec<T>{
     fn insert_slice(&mut self, guid: usize, t: &[T]) where T: Clone{
         let group = self.index.entry(guid)
             .or_insert(Group{first_index: self.vec.len(), len: 0});
         let prev_len = self.vec.len();
-        let rest = self.vec.split_off(group.first_index + group.len);
-        self.vec.extend_from_slice(t);
-        self.vec.extend(rest);
+        if group.first_index != self.vec.len(){
+            let rest = self.vec.split_off(group.first_index + group.len);
+            self.vec.extend_from_slice(t);
+            self.vec.extend(rest);
+        }else{
+            self.vec.extend_from_slice(t);
+        }
         self.ids.extend(prev_len..self.vec.len());
         group.len += t.len();
     }
@@ -43,7 +48,10 @@ impl<T> OneToNStorage<T> for DenseOneToNVec<T>{
 
 
 
-impl<T> Storage<T> for DenseOneToNVec<T>{
+impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
+    type Get = &'a [T];
+    type GetMut = &'a mut [T];
+
     fn new() -> DenseOneToNVec<T>{
         DenseOneToNVec{
             vec: vec![],
@@ -78,16 +86,18 @@ impl<T> Storage<T> for DenseOneToNVec<T>{
         }
     }
 
-    unsafe fn get(&self, guid: usize) -> &T{
+    unsafe fn get(&'a self, guid: usize) -> &'a [T]{
         let slice = &self.index.get(guid);
-        self.vec.get_unchecked(slice.first_index)
+        &self.vec[slice.first_index..slice.first_index + slice.len]
     }
 
-    unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
+    unsafe fn get_mut(&mut self, guid: usize) -> &mut [T]{
         let slice = &self.index.get(guid);
-        self.vec.get_unchecked_mut(slice.first_index)
+        &mut self.vec[slice.first_index..slice.first_index + slice.len]
     }
 }
+
+unsafe impl<T> AnyStorage for DenseOneToNVec<T>{}
 
 pub struct OneToNDenseIter<'a, T: 'a>{
     storage: ReadGuardRef<'a, DenseOneToNVec<T>>,

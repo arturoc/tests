@@ -3,10 +3,9 @@ use std::marker;
 use std::ptr;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
-// use std::mem;
 use std::usize;
 
-use storage::{Storage, IntoIter, IntoIterMut};
+use storage::{Storage, AnyStorage, IntoIter, IntoIterMut};
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 
 #[derive(Clone)]
@@ -16,7 +15,10 @@ pub struct DenseVec<T>{
     len: usize,
 }
 
-impl<T> Storage<T> for DenseVec<T>{
+impl<'a, T: 'a> Storage<'a, T> for DenseVec<T>{
+    type Get = &'a T;
+    type GetMut = &'a mut T;
+
     fn new() -> DenseVec<T>{
         DenseVec{
             storage: vec![],
@@ -57,14 +59,17 @@ impl<T> Storage<T> for DenseVec<T>{
         self.len -= 1;
     }
 
-    unsafe fn get(&self, guid: usize) -> &T{
-        self.storage.get_unchecked(*self.index.get_unchecked(guid))
+    unsafe fn get(&'a self, guid: usize) -> &'a T{
+        let idx = *self.index.get_unchecked(guid);
+        self.storage.get_unchecked(idx)
     }
 
-    unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
+    unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
         self.storage.get_unchecked_mut(*self.index.get_unchecked(guid))
     }
 }
+
+unsafe impl<T> AnyStorage for DenseVec<T>{}
 
 pub struct OccupiedEntry<'a, T: 'a>(&'a mut T);
 

@@ -22,8 +22,9 @@ pub struct Position {
     pub y: f32,
 }
 
-impl ::Component for Position{
+impl<'a> ::Component<'a> for Position{
     type Storage = BenchStorage<Position>;
+    type Key = Position;
     fn type_name() -> &'static str{
         "Position"
     }
@@ -35,8 +36,9 @@ pub struct Velocity {
     pub dy: f32,
 }
 
-impl ::Component for Velocity{
+impl<'a> ::Component<'a> for Velocity{
     type Storage = BenchStorage<Velocity>;
+    type Key = Velocity;
     fn type_name() -> &'static str{
         "Velocity"
     }
@@ -57,7 +59,7 @@ impl ::Component for Velocity{
 // }
 
 // Build
-fn build() -> ::World {
+fn build<'a>() -> ::World<'a> {
     let mut world = ::World::new();
 
     world.register_thread_local::<Position>();

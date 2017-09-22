@@ -17,14 +17,15 @@ pub struct Position {
     pub y: f32,
 }
 
-impl ::Component for Position{
+impl<'a> ::Component<'a> for Position{
     type Storage = ::DenseOneToNVec<Position>;
+    type Key = Position;
     fn type_name() -> &'static str{
         "Position"
     }
 }
 
-impl ::OneToNComponent for Position{}
+impl<'a> ::OneToNComponent<'a> for Position{}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Velocity {
@@ -32,14 +33,15 @@ pub struct Velocity {
     pub dy: f32,
 }
 
-impl ::Component for Velocity{
+impl<'a> ::Component<'a> for Velocity{
     type Storage = ::DenseOneToNVec<Velocity>;
+    type Key = Velocity;
     fn type_name() -> &'static str{
         "Velocity"
     }
 }
 
-impl ::OneToNComponent for Velocity{}
+impl<'a> ::OneToNComponent<'a> for Velocity{}
 
 // // Systems
 // fn physics(entities: ::Entities, _: ::Resources){
@@ -56,7 +58,7 @@ impl ::OneToNComponent for Velocity{}
 // }
 
 // Build
-fn build() -> ::World {
+fn build<'a>() -> ::World<'a> {
     let mut world = ::World::new();
 
     world.register_thread_local::<Position>();
@@ -93,9 +95,9 @@ fn bench_update(b: &mut Bencher) {
     b.iter(||{
         let entities = world.entities_thread_local();
         // world.run_once();
-        for (pos, vel) in entities.iter_for::<(::Write<Position>, ::Read<Velocity>)>(){
-            pos.x += vel.dx;
-            pos.y += vel.dy;
+        for (poss, vels) in entities.iter_for::<(::Write<Position>, ::Read<Velocity>)>(){
+            poss[0].x += vels[0].dx;
+            poss[0].y += vels[0].dy;
         }
 
         for pos in entities.iter_for::<::Read<Position>>(){

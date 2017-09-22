@@ -26,28 +26,31 @@ pub struct W2 {
     pub x: f32,
 }
 
-impl ::Component for R{
+impl<'a> ::Component<'a> for R{
     type Storage = BenchStorage<R>;
+    type Key = R;
     fn type_name() -> &'static str{
         "R"
     }
 }
 
-impl ::Component for W1{
+impl<'a> ::Component<'a> for W1{
     type Storage = BenchStorage<W1>;
+    type Key = W1;
     fn type_name() -> &'static str{
         "W1"
     }
 }
 
-impl ::Component for W2{
+impl<'a> ::Component<'a> for W2{
     type Storage = BenchStorage<W2>;
+    type Key = W2;
     fn type_name() -> &'static str{
         "W2"
     }
 }
 
-fn build() -> ::World {
+fn build<'a>() -> ::World<'a> {
     let mut w = ::World::new();
     w.register::<R>();
     w.register::<W1>();

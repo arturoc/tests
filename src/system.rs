@@ -1,10 +1,10 @@
-pub trait System<'a>{
-    fn run(&mut self, ::Entities<'a>, ::Resources<'a>){}
+pub trait System<'a,'b>{
+    fn run(&mut self, ::Entities<'a,'b>, ::Resources<'a>){}
 }
 
 
-impl<'a, F: FnMut(::Entities<'a>, ::Resources<'a>)> System<'a> for F{
-    fn run(&mut self, e: ::Entities<'a>, r: ::Resources<'a>){
+impl<'a,'b, F: FnMut(::Entities<'a,'b>, ::Resources<'a>)> System<'a,'b> for F where 'a: 'b{
+    fn run(&mut self, e: ::Entities<'a,'b>, r: ::Resources<'a>){
         (*self)(e,r)
     }
 }
@@ -19,12 +19,14 @@ impl<'a, F: FnMut(::Resources<'a>)> SystemResources<'a> for F{
     }
 }
 
-pub trait SystemEntities<'a>{
-    fn run(&mut self, ::Entities<'a>){}
+pub trait SystemEntities<'a,'b>{
+    fn run(&mut self, ::Entities<'a,'b>){}
 }
 
-impl<'a, F: FnMut(::Entities<'a>)> SystemEntities<'a> for F{
-    fn run(&mut self, e: ::Entities<'a>){
+impl<'a,'b, F: FnMut(::Entities<'a,'b>)> SystemEntities<'a,'b> for F
+    where 'a: 'b
+{
+    fn run(&mut self, e: ::Entities<'a,'b>){
         (*self)(e)
     }
 }

@@ -4,7 +4,7 @@ use std::ptr;
 use std::mem;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-use storage::{Storage, IntoIter, IntoIterMut};
+use storage::{Storage, AnyStorage, IntoIter, IntoIterMut};
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 
 pub struct VecStorage<T>{
@@ -12,7 +12,10 @@ pub struct VecStorage<T>{
     ids: Vec<usize>,
 }
 
-impl<T> Storage<T> for VecStorage<T>{
+impl<'a,T: 'a> Storage<'a,T> for VecStorage<T>{
+    type Get = &'a T;
+    type GetMut = &'a mut T;
+
     fn new() -> VecStorage<T>{
         VecStorage{
             storage: vec![],
@@ -55,6 +58,7 @@ impl<T> Storage<T> for VecStorage<T>{
     }
 }
 
+unsafe impl<T> AnyStorage for VecStorage<T>{}
 
 pub struct Iter<'a, T: 'a>{
     storage: ReadGuardRef<'a, VecStorage<T>>,
