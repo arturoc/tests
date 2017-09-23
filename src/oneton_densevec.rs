@@ -25,9 +25,10 @@ impl<'a,T: 'a> OneToNStorage<'a,T> for DenseOneToNVec<T>{
             .or_insert(Group{first_index: self.vec.len(), len: 0});
         let prev_len = self.vec.len();
         if group.first_index != self.vec.len(){
-            let rest = self.vec.split_off(group.first_index + group.len);
-            self.vec.extend_from_slice(t);
-            self.vec.extend(rest);
+            unimplemented!("Can't insert on already initialized groups. still needs to update already existing groups");
+            // let rest = self.vec.split_off(group.first_index + group.len);
+            // self.vec.extend_from_slice(t);
+            // self.vec.extend(rest);
         }else{
             self.vec.extend_from_slice(t);
         }
@@ -69,11 +70,12 @@ impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
     }
 
     fn insert(&mut self, guid: usize, t: T){
-        let group = self.index.entry(guid)
-            .or_insert(Group{first_index: self.vec.len(), len: 0});
-        self.vec.insert(group.first_index + group.len, t);
-        group.len += 1;
-        self.ids.push(self.vec.len() - 1);
+        unimplemented!("Can't insert on already initialized groups. still needs to update already existing groups");
+        // let group = self.index.entry(guid)
+        //     .or_insert(Group{first_index: self.vec.len(), len: 0});
+        // self.vec.insert(group.first_index + group.len, t);
+        // group.len += 1;
+        // self.ids.push(self.vec.len() - 1);
     }
 
     fn remove(&mut self, guid: usize){
@@ -89,11 +91,17 @@ impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
     unsafe fn get(&'a self, guid: usize) -> &'a [T]{
         let slice = &self.index.get(guid);
         &self.vec[slice.first_index..slice.first_index + slice.len]
+
+        // let ptr = self.vec.as_ptr().offset(slice.first_index as isize);
+        // slice::from_raw_parts(ptr, slice.len)
     }
 
     unsafe fn get_mut(&mut self, guid: usize) -> &mut [T]{
         let slice = &self.index.get(guid);
         &mut self.vec[slice.first_index..slice.first_index + slice.len]
+
+        // let ptr = self.vec.as_mut_ptr().offset(slice.first_index as isize);
+        // slice::from_raw_parts_mut(ptr, slice.len)
     }
 }
 

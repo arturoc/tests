@@ -100,6 +100,19 @@ impl<'a, 'b> EntityBuilder<'a, 'b>{
         self.components_mask |= self.world.components_mask_index[&C::type_id()];
         self
     }
+
+    pub fn add_slice_thread_local<C: OneToNComponentSync<'a> + Clone>(&mut self, component: &[C]) -> &mut Self{
+        {
+            let storage = self.world.storage_thread_local_mut::<C>();
+            if let Some(mut storage) = storage{
+                storage.insert_slice(self.guid, component)
+            }else{
+                panic!("Trying to add component of type {} without registering first", C::type_name())
+            }
+        };
+        self.components_mask |= self.world.components_mask_index[&C::type_id()];
+        self
+    }
 }
 
 

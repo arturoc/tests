@@ -45,3 +45,5 @@ mod parallel_benches;
 mod hierarchical_benches;
 #[cfg(feature="unstable")]
 mod one_to_n_benches;
+#[cfg(feature="unstable")]
+mod vec_benches;

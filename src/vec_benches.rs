@@ -17,15 +17,17 @@ pub struct Position {
     pub y: f32,
 }
 
-impl<'a> ::Component<'a> for Position{
-    type Storage = ::DenseOneToNVec<Position>;
-    type Key = Position;
-    fn type_name() -> &'static str{
-        "Position"
-    }
+pub struct Positions{
+    p: Vec<Position>
 }
 
-impl<'a> ::OneToNComponent<'a> for Position{}
+impl<'a> ::Component<'a> for Positions{
+    type Storage = ::DenseVec<Positions>;
+    type Key = Positions;
+    fn type_name() -> &'static str{
+        "Positions"
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Velocity {
@@ -33,15 +35,17 @@ pub struct Velocity {
     pub dy: f32,
 }
 
-impl<'a> ::Component<'a> for Velocity{
-    type Storage = ::DenseOneToNVec<Velocity>;
-    type Key = Velocity;
-    fn type_name() -> &'static str{
-        "Velocity"
-    }
+pub struct Velocities{
+    p: Vec<Velocity>
 }
 
-impl<'a> ::OneToNComponent<'a> for Velocity{}
+impl<'a> ::Component<'a> for Velocities{
+    type Storage = ::DenseVec<Velocities>;
+    type Key = Velocities;
+    fn type_name() -> &'static str{
+        "Velocities"
+    }
+}
 
 // // Systems
 // fn physics(entities: ::Entities, _: ::Resources){
@@ -61,21 +65,21 @@ impl<'a> ::OneToNComponent<'a> for Velocity{}
 fn build<'a>() -> ::World<'a> {
     let mut world = ::World::new();
 
-    world.register_thread_local::<Position>();
-    world.register_thread_local::<Velocity>();
+    world.register_thread_local::<Positions>();
+    world.register_thread_local::<Velocities>();
 
     let mut vec = Vec::new();
     // setup entities
     for _ in 0..N_POS_VEL {
         vec.extend_from_slice(&[Position { x: 0.0, y: 0.0 }, Position { x: 0.0, y: 0.0 }, Position { x: 0.0, y: 0.0 }, Position { x: 0.0, y: 0.0 }]);
         world.create_entity()
-            .add_slice_thread_local(&[Position { x: 0.0, y: 0.0 }, Position { x: 0.0, y: 0.0 }, Position { x: 0.0, y: 0.0 }, Position { x: 0.0, y: 0.0 }])
-            .add_slice_thread_local(&[Velocity { dx: 0.0, dy: 0.0 },Velocity { dx: 0.0, dy: 0.0 },Velocity { dx: 0.0, dy: 0.0 },Velocity { dx: 0.0, dy: 0.0 }])
+            .add_thread_local(Positions { p: vec![Position{x: 0.0, y: 0.0 },Position{x: 0.0, y: 0.0 },Position{x: 0.0, y: 0.0 },Position{x: 0.0, y: 0.0 }] })
+            .add_thread_local(Velocities { p: vec![Velocity{ dx: 0.0, dy: 0.0 },Velocity{ dx: 0.0, dy: 0.0 },Velocity{ dx: 0.0, dy: 0.0 },Velocity{ dx: 0.0, dy: 0.0 }] })
             .build();
     }
     for _ in 0..N_POS {
         world.create_entity()
-            .add_slice_thread_local(&[Position { x: 0.0, y: 0.0 }])
+            .add_thread_local(Positions { p: vec![Position{x: 0.0, y: 0.0 }] })
             .build();
     }
 
@@ -97,15 +101,15 @@ fn bench_update(b: &mut Bencher) {
     b.iter(||{
         let entities = world.entities_thread_local();
         // world.run_once();
-        for (poss, vels) in entities.iter_for::<(::Write<Position>, ::Read<Velocity>)>(){
-            for (pos, vel) in poss.iter_mut().zip(vels){
+        for (poss, vels) in entities.iter_for::<(::Write<Positions>, ::Read<Velocities>)>(){
+            for (pos, vel) in poss.p.iter_mut().zip(vels.p.iter()){
                 pos.x += vel.dx;
                 pos.y += vel.dy;
             }
         }
 
-        for pos in entities.iter_for::<::Read<Position>>(){
-            for pos in pos{
+        for pos in entities.iter_for::<::Read<Positions>>(){
+            for pos in &pos.p{
                 let _ = pos;
             }
         }
