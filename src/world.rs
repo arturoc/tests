@@ -1,5 +1,4 @@
 use std::any::{Any, TypeId};
-use std::collections::HashMap;
 use std::cell::{RefCell, Ref, RefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -11,37 +10,38 @@ use component::{ComponentSync, Component, ComponentThreadLocal};
 use storage::{Storage, AnyStorage, HierarchicalStorage};
 use entity::{EntityBuilder, Entities, EntitiesThreadLocal};
 use sync::*;
+use fnv::FnvHashMap;
 
 pub struct World<'a>{
-    storages: HashMap<TypeId, Box<AnyStorage + 'a>>,
-    storages_thread_local: HashMap<TypeId, Box<AnyStorage + 'a>>,
-    resources: HashMap<TypeId, Box<Any>>,
+    storages: FnvHashMap<TypeId, Box<AnyStorage + 'a>>,
+    storages_thread_local: FnvHashMap<TypeId, Box<AnyStorage + 'a>>,
+    resources: FnvHashMap<TypeId, Box<Any>>,
 
     next_guid: AtomicUsize,
     entities: Vec<Entity>, // Doesn't need lock cause never accesed mut from Entities?
-    entities_index_per_mask: RwLock<HashMap<usize, Vec<usize>>>,
-    ordered_entities_index_per_mask: RwLock<HashMap<TypeId, HashMap<usize, Vec<usize>>>>,
-    reverse_components_mask_index: HashMap<usize, TypeId>,
-    remove_components_mask_index: HashMap<usize, Box<for<'b> Fn(&'b World<'a>, usize)>>,
+    entities_index_per_mask: RwLock<FnvHashMap<usize, Vec<usize>>>,
+    ordered_entities_index_per_mask: RwLock<FnvHashMap<TypeId, FnvHashMap<usize, Vec<usize>>>>,
+    reverse_components_mask_index: FnvHashMap<usize, TypeId>,
+    remove_components_mask_index: FnvHashMap<usize, Box<for<'b> Fn(&'b World<'a>, usize)>>,
 
     next_component_mask: AtomicUsize,
-    pub(crate) components_mask_index: HashMap<TypeId, usize>,
+    pub(crate) components_mask_index: FnvHashMap<TypeId, usize>,
 }
 
 impl<'a> World<'a>{
     pub fn new() -> World<'a>{
         World{
-            storages: HashMap::new(),
-            storages_thread_local: HashMap::new(),
-            resources: HashMap::new(),
+            storages: FnvHashMap::default(),
+            storages_thread_local: FnvHashMap::default(),
+            resources: FnvHashMap::default(),
             next_guid: AtomicUsize::new(0),
             next_component_mask: AtomicUsize::new(1),
             entities: Vec::new(),
-            components_mask_index: HashMap::new(),
-            entities_index_per_mask: RwLock::new(HashMap::new()),
-            ordered_entities_index_per_mask: RwLock::new(HashMap::new()),
-            reverse_components_mask_index: HashMap::new(),
-            remove_components_mask_index: HashMap::new(),
+            components_mask_index: FnvHashMap::default(),
+            entities_index_per_mask: RwLock::new(FnvHashMap::default()),
+            ordered_entities_index_per_mask: RwLock::new(FnvHashMap::default()),
+            reverse_components_mask_index: FnvHashMap::default(),
+            remove_components_mask_index: FnvHashMap::default(),
         }
     }
 
@@ -239,7 +239,7 @@ impl<'a> World<'a>{
         where <C as Component<'a>>::Storage: ::HierarchicalStorage<'a,C>,
               RwLock<<C as Component<'a>>::Storage>: AnyStorage{
         if !self.ordered_entities_index_per_mask.write().unwrap().entry(C::type_id())
-            .or_insert_with(|| HashMap::new())
+            .or_insert_with(|| FnvHashMap::default())
             .contains_key(&mask){
             let entities = self.storage::<C>()
                 .expect(&format!("Trying to use non registered type {}", C::type_name()))
@@ -264,7 +264,7 @@ impl<'a> World<'a>{
         where <C as Component<'a>>::Storage: ::HierarchicalStorage<'a,C>,
               RwLock<<C as Component<'a>>::Storage>: AnyStorage{
         if !self.ordered_entities_index_per_mask.write().unwrap().entry(C::type_id())
-            .or_insert_with(|| HashMap::new())
+            .or_insert_with(|| FnvHashMap::default())
             .contains_key(&mask){
             let entities = self.storage_thread_local::<C>()
                 .expect(&format!("Trying to use non registered type {}", C::type_name()))

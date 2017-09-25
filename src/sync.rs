@@ -1,11 +1,11 @@
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 use std::cell::{Ref, RefMut};
 use std::mem;
 use std::ops::{Deref, DerefMut};
 
 pub struct IndexGuard<'a>{
-    pub(crate) _index_guard: RwLockReadGuard<'a, HashMap<usize, Vec<usize>>>,
+    pub(crate) _index_guard: RwLockReadGuard<'a, FnvHashMap<usize, Vec<usize>>>,
     pub(crate) index: &'a [usize],
 }
 

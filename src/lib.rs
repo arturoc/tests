@@ -3,6 +3,7 @@
 
 #[cfg(test)]
 extern crate rayon;
+extern crate fnv;
 
 use sync::*;
 use storage::*;
@@ -20,6 +21,8 @@ pub use resource::Resources;
 pub use world::World;
 pub use system::*;
 pub use oneton_densevec::DenseOneToNVec;
+pub use assoc_vec::AssocVec;
+pub use hashmap::HashMapStorage;
 
 mod sync;
 mod entity;
@@ -33,6 +36,8 @@ mod resource;
 mod world;
 mod system;
 mod oneton_densevec;
+mod assoc_vec;
+mod hashmap;
 
 #[cfg(test)]
 mod tests;

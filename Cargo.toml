@@ -8,3 +8,4 @@ unstable=[]
 
 [dependencies]
 rayon="*"
+fnv = "1.0"
