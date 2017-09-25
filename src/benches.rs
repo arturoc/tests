@@ -11,8 +11,8 @@ pub const N_POS_VEL: usize = 1000;
 pub const N_POS: usize = 9000;
 
 // type BenchStorage<T> = ::DenseVec<T>;
-// type BenchStorage<T> = ::VecStorage<T>;
-type BenchStorage<T> = ::AssocVec<T>;
+type BenchStorage<T> = ::VecStorage<T>;
+// type BenchStorage<T> = ::AssocVec<T>;
 // type BenchStorage<T> = ::HashMapStorage<T>;
 // type BenchStorage<T> = ::Tree<T>;
 // type BenchStorage<T> = HashMap<usize,T>;
