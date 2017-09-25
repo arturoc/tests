@@ -967,3 +967,70 @@ fn insert_read_slice_alloc() {
         assert_eq!(poss.0[0], Vertex{x: poss.0.len() as f32, y: poss.0.len() as f32});
     }
 }
+
+
+#[test]
+fn insert_read_one_to_n_hierarchy() {
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Pos{
+        x: f32,
+        y: f32,
+    }
+
+    impl<'a> ::Component<'a> for Pos{
+        type Storage = ::OneToNForest<Pos>;
+        type Key = Pos;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
+    }
+
+    impl<'a> ::HierarchicalOneToNComponent<'a> for Pos{}
+
+    let mut world = ::World::new();
+    world.register::<Pos>();
+
+    {
+        let mut e1_builder = world.create_entity();
+        e1_builder.add_hierarchy()
+            .new_node(Pos{x: 1., y: 1.});
+        e1_builder.build();
+    }
+
+    {
+        let mut e2_builder = world.create_entity();
+        let mut e2_hierarchy = e2_builder.add_hierarchy();
+        e2_hierarchy.new_node(Pos{x: 2., y: 2.});
+        e2_hierarchy.new_node(Pos{x: 2., y: 2.});
+        e2_builder.build();
+    }
+
+    {
+        let mut e3_builder = world.create_entity();
+        let mut e3_hierarchy = e3_builder.add_hierarchy();
+        let e3_parent = e3_hierarchy.new_node(Pos{x: 3., y: 3.});
+        e3_hierarchy.append_child(e3_parent, Pos{x: 3., y: 3.});
+        e3_hierarchy.append_child(e3_parent, Pos{x: 3., y: 3.});
+        e3_builder.build();
+    }
+
+    let entities = world.entities();
+    assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
+
+    let iter = entities.iter_for::<::Read<Pos>>();
+    for (i, mut poss) in iter.enumerate(){
+        let pos = poss.next().unwrap();
+        assert_eq!(**pos, Pos{x: i as f32 + 1., y: i as f32 + 1.});
+        if i == 1 {
+            assert_eq!(**poss.next().unwrap(), Pos{x: i as f32 + 1., y: i as f32 + 1.});
+        }
+        if i == 2 {
+            let mut descendants = pos.descendants_ref();
+            assert_eq!(3, descendants.count());
+            let mut descendants = pos.descendants_ref();
+            assert_eq!(**descendants.next().unwrap(), Pos{x: 3., y: 3.});
+            assert_eq!(**descendants.next().unwrap(), Pos{x: 3., y: 3.});
+            assert_eq!(**descendants.next().unwrap(), Pos{x: 3., y: 3.});
+        }
+    }
+}

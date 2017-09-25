@@ -15,7 +15,9 @@ pub struct Forest<T>{
 }
 
 impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
-    type Get = T;
+    type Target = T;
+    type Get = &'a T;
+    type GetMut = &'a mut T;
 
     fn new() -> Forest<T>{
         Forest{
@@ -65,6 +67,10 @@ impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
     unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
         let node_id = self.index.get_unchecked(guid);
         &mut self.arena[*node_id]
+    }
+
+    unsafe fn get_for_ptr(&'a self, guid: usize) -> &'a Self::Target{
+        self.get(guid)
     }
 }
 

@@ -26,13 +26,16 @@ unsafe impl<S: AnyStorage> AnyStorage for RwLock<S>{}
 unsafe impl<S: AnyStorage> AnyStorage for RefCell<S>{}
 
 pub trait Storage<'a,T>: AnyStorage{
-    type Get: ?Sized;
+    type Target: ?Sized;
+    type Get;
+    type GetMut;
     fn new() -> Self;
     fn with_capacity(usize) -> Self;
     fn insert(&mut self, guid: usize, t: T);
     fn remove(&mut self, guid: usize);
-    unsafe fn get(&'a self, guid: usize) -> &'a Self::Get;
-    unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut Self::Get;
+    unsafe fn get(&'a self, guid: usize) -> Self::Get;
+    unsafe fn get_mut(&'a mut self, guid: usize) -> Self::GetMut;
+    unsafe fn get_for_ptr(&'a self, guid: usize) -> &'a Self::Target;
 }
 
 pub trait IntoIter{
@@ -70,8 +73,8 @@ pub trait StorageRef<'a, T>{
     fn get(&self, guid: usize) -> T;
 }
 
-impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, &'a <S as Storage<'a,T>>::Get> for StorageRead<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a <S as Storage<'a,T>>::Get{
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, <S as Storage<'a,T>>::Get> for StorageRead<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::Get{
         // unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
 
         let storage = unsafe{ mem::transmute::<&S, &S>(&self.storage) };
@@ -79,8 +82,8 @@ impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, &'a <S
     }
 }
 
-impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, &'a mut <S as Storage<'a,T>>::Get> for StorageWrite<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a mut <S as Storage<'a,T>>::Get{
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, <S as Storage<'a,T>>::GetMut> for StorageWrite<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::GetMut{
         // unsafe{ mem::transmute::<&mut T, &mut T>( (*self.storage.get()).get_mut(guid) ) }
 
 
@@ -105,7 +108,7 @@ impl<'a, 'b, T: 'a + ComponentSync<'a>> UnorderedData<'a, 'b> for Read<'a,T>
 {
     type Iter = <RwLockReadGuard<'a, <T as Component<'a>>::Storage> as IntoIter>::Iter;
     type Components = T;
-    type ComponentsRef = &'a <<T as Component<'a>>::Storage as Storage<'a,T>>::Get;
+    type ComponentsRef = <<T as Component<'a>>::Storage as Storage<'a,T>>::Get;
     type Storage = StorageRead<'a, <T as Component<'a>>::Storage, Self::Components>;
     fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
@@ -129,7 +132,7 @@ impl<'a, 'b, T: 'a + ComponentSync<'a>> UnorderedData<'a, 'b> for Write<'a,T>
 {
     type Iter = <RwLockWriteGuard<'a, <T as Component<'a>>::Storage> as IntoIterMut>::IterMut;
     type Components = T;
-    type ComponentsRef = &'a mut <<T as Component<'a>>::Storage as Storage<'a,T>>::Get;
+    type ComponentsRef = <<T as Component<'a>>::Storage as Storage<'a,T>>::GetMut;
     type Storage = StorageWrite<'a, <T as Component<'a>>::Storage, Self::Components>;
     fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
@@ -191,16 +194,16 @@ pub struct StorageWriteLocal<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadL
     _marker: marker::PhantomData<&'a T>,
 }
 
-impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>> StorageRef<'a, &'a <S as Storage<'a,T>>::Get> for StorageReadLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a <S as Storage<'a,T>>::Get{
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>> StorageRef<'a, <S as Storage<'a,T>>::Get> for StorageReadLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::Get{
         //unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
         let storage = unsafe{ mem::transmute::<&S, &S>(&self.storage) };
         unsafe{ storage.get(guid) }
     }
 }
 
-impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>> StorageRef<'a, &'a mut <S as Storage<'a,T>>::Get> for StorageWriteLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a mut <S as Storage<'a,T>>::Get{
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal<'a>> StorageRef<'a, <S as Storage<'a,T>>::GetMut> for StorageWriteLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::GetMut{
         // unsafe{ mem::transmute::<&mut T, &mut T>((*self.storage.get()).get_mut(guid)) }
         let storage = unsafe{ mem::transmute::<&mut S, &mut S>(&mut (*self.storage.get())) };
         unsafe{ storage.get_mut(guid) }
@@ -223,7 +226,7 @@ impl<'a, 'b, T: 'a + ComponentThreadLocal<'a>> UnorderedDataLocal<'a, 'b> for Re
 {
     type Iter = <ReadGuardRef<'a, <T as Component<'a>>::Storage> as IntoIter>::Iter;
     type Components = T;
-    type ComponentsRef = &'a <<T as Component<'a>>::Storage as Storage<'a,T>>::Get;
+    type ComponentsRef = <<T as Component<'a>>::Storage as Storage<'a,T>>::Get;
     type Storage = StorageReadLocal<'a, <T as Component<'a>>::Storage, Self::Components>;
     fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
@@ -247,7 +250,7 @@ impl<'a, 'b, T: 'a + ComponentThreadLocal<'a>> UnorderedDataLocal<'a, 'b> for Wr
 {
     type Iter = <WriteGuardRef<'a, <T as Component<'a>>::Storage> as IntoIterMut>::IterMut;
     type Components = T;
-    type ComponentsRef = &'a mut <<T as Component<'a>>::Storage as Storage<'a,T>>::Get;
+    type ComponentsRef = <<T as Component<'a>>::Storage as Storage<'a,T>>::GetMut;
     type Storage = StorageWriteLocal<'a, <T as Component<'a>>::Storage, Self::Components>;
     fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
@@ -1089,108 +1092,9 @@ pub trait OneToNStorage<'a,T>: Storage<'a,T>{
     unsafe fn get_slice_mut(&mut self, guid: usize) -> &mut [T];
 }
 
+// OneToNHierarchical
 
-// pub struct ReadOneToN<'a, T: 'a + OneToNComponent>{
-//     marker: marker::PhantomData<&'a T>,
-// }
-//
-//
-// pub struct WriteOneToN<'a, T: 'a + OneToNComponent>{
-//     marker: marker::PhantomData<&'a T>,
-// }
-//
-//
-// impl<'a, T: 'a + OneToNComponentSync> UnorderedData<'a, 'b> for ReadOneToN<'a,T>
-//     where for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoIter
-// {
-//     type Iter = <RwLockReadGuard<'a, <T as Component>::Storage> as IntoIter>::Iter;
-//     type Components = T;
-//     type ComponentsRef = &'a [T];
-//     type Storage = StorageRead<'a, <T as Component>::Storage, Self::Components>;
-//     fn components_mask(world: &'a World) -> usize{
-//         world.components_mask::<T>()
-//     }
-//
-//     fn into_iter(world: &'a ::World) -> Self::Iter{
-//         world.storage::<T>().unwrap().into_iter()
-//     }
-//
-//     fn storage(world: &'a ::World) -> Self::Storage{
-//         StorageRead{
-//             storage: world.storage::<T>().unwrap(),
-//             _marker: marker::PhantomData,
-//         }
-//     }
-// }
-//
-//
-// impl<'a, T: 'a + OneToNComponentSync> UnorderedData<'a, 'b> for WriteOneToN<'a,T>
-//     where for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoIterMut
-// {
-//     type Iter = <RwLockWriteGuard<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
-//     type Components = T;
-//     type ComponentsRef = &'a mut [T];
-//     type Storage = StorageWrite<'a, <T as Component>::Storage, Self::Components>;
-//     fn components_mask(world: &'a World) -> usize{
-//         world.components_mask::<T>()
-//     }
-//
-//     fn into_iter(world: &'a ::World) -> Self::Iter{
-//         world.storage_mut::<T>().unwrap().into_iter_mut()
-//     }
-//
-//     fn storage(world: &'a ::World) -> Self::Storage{
-//         StorageWrite{
-//             storage: UnsafeCell::new(world.storage_mut::<T>().unwrap()),
-//             _marker: marker::PhantomData,
-//         }
-//     }
-// }
-//
-//
-// impl<'a, T: 'a + OneToNComponentThreadLocal> UnorderedDataLocal<'a, 'b> for ReadOneToN<'a,T>
-//     where for<'b> ReadGuardRef<'b, <T as Component>::Storage>: IntoIter
-// {
-//     type Iter = <ReadGuardRef<'a, <T as Component>::Storage> as IntoIter>::Iter;
-//     type Components = T;
-//     type ComponentsRef = &'a [T];
-//     type Storage = StorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
-//     fn components_mask(world: &'a World) -> usize{
-//         world.components_mask::<T>()
-//     }
-//
-//     fn into_iter(world: &'a ::World) -> Self::Iter{
-//         world.storage_thread_local::<T>().unwrap().into_iter()
-//     }
-//
-//     fn storage(world: &'a ::World) -> Self::Storage{
-//         StorageReadLocal{
-//             storage: world.storage_thread_local::<T>().unwrap(),
-//             _marker: marker::PhantomData,
-//         }
-//     }
-// }
-//
-//
-// impl<'a, T: 'a + OneToNComponentThreadLocal> UnorderedDataLocal<'a, 'b> for WriteOneToN<'a,T>
-//     where for<'b> WriteGuardRef<'b, <T as Component>::Storage>: IntoIterMut
-// {
-//     type Iter = <WriteGuardRef<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
-//     type Components = T;
-//     type ComponentsRef = &'a mut [T];
-//     type Storage = StorageWriteLocal<'a, <T as Component>::Storage, Self::Components>;
-//     fn components_mask(world: &'a World) -> usize{
-//         world.components_mask::<T>()
-//     }
-//
-//     fn into_iter(world: &'a ::World) -> Self::Iter{
-//         world.storage_thread_local_mut::<T>().unwrap().into_iter_mut()
-//     }
-//
-//     fn storage(world: &'a ::World) -> Self::Storage{
-//         StorageWriteLocal{
-//             storage: UnsafeCell::new(world.storage_thread_local_mut::<T>().unwrap()),
-//             _marker: marker::PhantomData,
-//         }
-//     }
-// }
+pub trait HierarchicalOneToNStorage<'a,T>: Storage<'a,T>{
+    unsafe fn insert_root(&mut self, guid: usize, t: T) -> idtree::NodeRefMut<T>;
+    unsafe fn insert_child(&mut self, parent: idtree::NodeId, t: T) -> idtree::NodeRefMut<T>;
+}

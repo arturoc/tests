@@ -162,26 +162,39 @@ impl<T> Arena<T> {
         }
     }
 
-    // pub fn contains(&self, id: NodeId) -> bool{
-    //     self.nodes.get(id.index).id.generation == id.generation &&
-    //     self.nodes[id.index].alive
-    // }
+    pub fn contains(&self, id: NodeId) -> bool{
+        self.nodes.contains(id.index)
+    }
 
     pub fn remove<N: Into<NodeId>>(&mut self, id: N){
         let id = id.into();
-        if unsafe{ self.nodes.get(id.index).parent().is_some() }{
-            for c in id.children(self).collect::<Vec<_>>(){
-                id.insert_after(c, self);
+        if self.contains(id){
+            if unsafe{ self.nodes.get(id.index).parent().is_some() }{
+                for c in id.children(self).collect::<Vec<_>>(){
+                    id.insert_after(c, self);
+                }
+            }else{
+                for c in id.children(self).collect::<Vec<_>>(){
+                    c.detach(self);
+                }
             }
-        }else{
-            for c in id.children(self).collect::<Vec<_>>(){
-                c.detach(self);
-            }
+            id.detach(self);
+            self.nodes.remove(id.index);
         }
-        id.detach(self);
-        self.nodes.remove(id.index);
     }
 
+    pub fn remove_tree<N: Into<NodeId>>(&mut self, id: N){
+        let id = id.into();
+        if self.contains(id){
+            if unsafe{ self.nodes.get(id.index).first_child().is_some() }{
+                for c in id.children(self).collect::<Vec<_>>(){
+                    self.remove_tree(c);
+                }
+            }else{
+                self.remove(id);
+            }
+        }
+    }
 
     // pub fn remove<N: Into<NodeId>>(&mut self, id: N) -> Result<(),()>{
     //     let id = id.into();

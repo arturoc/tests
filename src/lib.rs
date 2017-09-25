@@ -11,9 +11,10 @@ pub use storage::{Read, Write, Storage, IntoIter, IntoIterMut,
     ReadEntities,
     ReadHierarchical, WriteHierarchical, HierarchicalStorage,
     IntoOrderedIter, IntoOrderedIterMut, ReadAndParent, WriteAndParent,
+    HierarchicalOneToNStorage,
 };
 pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder};
-pub use component::{Component, ComponentSync, ComponentThreadLocal, OneToNComponent};
+pub use component::{Component, ComponentSync, ComponentThreadLocal, OneToNComponent, HierarchicalOneToNComponent};
 pub use dense_vec::DenseVec;
 pub use forest::Forest;
 pub use vec::VecStorage;
@@ -23,8 +24,9 @@ pub use system::*;
 pub use oneton_densevec::DenseOneToNVec;
 pub use assoc_vec::AssocVec;
 pub use hashmap::HashMapStorage;
-pub use idtree::{NodeRef, NodeRefMut};
+pub use idtree::{NodeRef, NodeRefMut, NodeId};
 pub use sync::Ptr;
+pub use oneton_forest::OneToNForest;
 
 mod sync;
 mod entity;
@@ -38,6 +40,7 @@ mod resource;
 mod world;
 mod system;
 mod oneton_densevec;
+mod oneton_forest;
 mod assoc_vec;
 mod hashmap;
 

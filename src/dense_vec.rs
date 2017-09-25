@@ -16,7 +16,9 @@ pub struct DenseVec<T>{
 }
 
 impl<'a, T: 'a> Storage<'a, T> for DenseVec<T>{
-    type Get = T;
+    type Target = T;
+    type Get = &'a T;
+    type GetMut = &'a mut T;
 
     fn new() -> DenseVec<T>{
         DenseVec{
@@ -65,6 +67,10 @@ impl<'a, T: 'a> Storage<'a, T> for DenseVec<T>{
 
     unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
         self.storage.get_unchecked_mut(*self.index.get_unchecked(guid))
+    }
+
+    unsafe fn get_for_ptr(&'a self, guid: usize) -> &'a Self::Target{
+        self.get(guid)
     }
 }
 
@@ -118,6 +124,10 @@ impl<T> DenseVec<T>{
                 Entry::Occupied(OccupiedEntry(unsafe{ self.storage.get_unchecked_mut(idx) }))
             }
         }
+    }
+
+    pub fn contains(&self, guid: usize) -> bool{
+        guid < self.len && unsafe{ *self.index.get_unchecked(guid) } < usize::MAX
     }
 }
 

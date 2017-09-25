@@ -50,7 +50,9 @@ impl<'a,T: 'a> OneToNStorage<'a,T> for DenseOneToNVec<T>{
 
 
 impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
-    type Get = [T];
+    type Target = [T];
+    type Get = &'a [T];
+    type GetMut = &'a mut [T];
 
     fn new() -> DenseOneToNVec<T>{
         DenseOneToNVec{
@@ -101,6 +103,10 @@ impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
 
         // let ptr = self.vec.as_mut_ptr().offset(slice.first_index as isize);
         // slice::from_raw_parts_mut(ptr, slice.len)
+    }
+
+    unsafe fn get_for_ptr(&'a self, guid: usize) -> &'a Self::Target{
+        self.get(guid)
     }
 }
 

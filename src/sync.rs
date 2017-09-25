@@ -106,21 +106,21 @@ impl<'a, S: 'a> DerefMut for WriteGuardRef<'a, S>{
 
 pub struct Ptr<'a, C: Component<'a>>{
     _guard: ReadGuardRef<'a, <C as Component<'a>>::Storage>,
-    reference: &'a <<C as Component<'a>>::Storage as Storage<'a,C>>::Get,
+    reference: &'a <<C as Component<'a>>::Storage as Storage<'a,C>>::Target,
 }
 
 impl<'a, C: Component<'a>> Ptr<'a, C>{
     pub(crate) fn new(_guard: ReadGuardRef<'a, <C as Component<'a>>::Storage>, entity: Entity) -> Ptr<'a, C>{
         Ptr{
-            reference: unsafe{ _guard.reference.get(entity.guid()) },
+            reference: unsafe{ _guard.reference.get_for_ptr(entity.guid()) },
             _guard,
         }
     }
 }
 
 impl<'a, C: Component<'a>> Deref for Ptr<'a,C>{
-    type Target = <<C as Component<'a>>::Storage as Storage<'a,C>>::Get;
-    fn deref(&self) -> &<<C as Component<'a>>::Storage as Storage<'a,C>>::Get{
+    type Target = <<C as Component<'a>>::Storage as Storage<'a,C>>::Target;
+    fn deref(&self) -> &<<C as Component<'a>>::Storage as Storage<'a,C>>::Target{
         self.reference
     }
 }
