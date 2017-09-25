@@ -497,8 +497,8 @@ impl<'a,T:'a,I> IntoHierarchicalIterMut<'a,T> for I
 
 pub trait HierarchicalStorage<'a,T>: Storage<'a,T>{
     unsafe fn insert_child(&mut self, parent_guid: usize, guid: usize, value: T);
-    unsafe fn get_node(&self, guid: usize) -> idtree::NodeIdRef<T>;
-    unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeIdMut<T>;
+    unsafe fn get_node(&self, guid: usize) -> idtree::NodeRef<T>;
+    unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeRefMut<T>;
     fn ordered_ids(&self) -> &[usize];
 }
 
@@ -523,15 +523,15 @@ pub struct HierarchicalStorageWrite<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a
 }
 
 
-impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeIdRef<'a, T>> for HierarchicalStorageRead<'a, S, T>{
-    fn get(&self, guid: usize) -> idtree::NodeIdRef<'a, T>{
-        unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(self.storage.get_node(guid)) }
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeRef<'a, T>> for HierarchicalStorageRead<'a, S, T>{
+    fn get(&self, guid: usize) -> idtree::NodeRef<'a, T>{
+        unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(self.storage.get_node(guid)) }
     }
 }
 
-impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeIdMut<'a, T>> for HierarchicalStorageWrite<'a, S, T>{
-    fn get(&self, guid: usize) -> idtree::NodeIdMut<'a, T>{
-        unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>((*self.storage.get()).get_node_mut(guid)) }
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeRefMut<'a, T>> for HierarchicalStorageWrite<'a, S, T>{
+    fn get(&self, guid: usize) -> idtree::NodeRefMut<'a, T>{
+        unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>((*self.storage.get()).get_node_mut(guid)) }
     }
 }
 
@@ -555,7 +555,7 @@ impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedData<'a, 'b> for ReadHierarchical
 {
     type Iter = <RwLockReadGuard<'a, <T as Component<'a>>::Storage> as IntoOrderedIter>::OrderedIter;
     type Components = T;
-    type ComponentsRef = idtree::NodeIdRef<'a, T>;
+    type ComponentsRef = idtree::NodeRef<'a, T>;
     type Storage = HierarchicalStorageRead<'a, <T as Component<'a>>::Storage, Self::Components>;
     fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
@@ -585,7 +585,7 @@ impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedData<'a, 'b> for WriteHierarchica
 {
     type Iter = <RwLockWriteGuard<'a, <T as Component<'a>>::Storage> as IntoOrderedIterMut>::OrderedIterMut;
     type Components = T;
-    type ComponentsRef = idtree::NodeIdMut<'a, T>;
+    type ComponentsRef = idtree::NodeRefMut<'a, T>;
     type Storage = HierarchicalStorageWrite<'a, <T as Component<'a>>::Storage, Self::Components>;
     fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
@@ -619,15 +619,15 @@ pub struct HierarchicalStorageWriteLocal<'a, S: HierarchicalStorage<'a,T> + 'a, 
 }
 
 
-impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeIdRef<'a, T>> for HierarchicalStorageReadLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> idtree::NodeIdRef<'a, T>{
-        unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(self.storage.get_node(guid)) }
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeRef<'a, T>> for HierarchicalStorageReadLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> idtree::NodeRef<'a, T>{
+        unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(self.storage.get_node(guid)) }
     }
 }
 
-impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeIdMut<'a, T>> for HierarchicalStorageWriteLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> idtree::NodeIdMut<'a, T>{
-        unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>((*self.storage.get()).get_node_mut(guid)) }
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, idtree::NodeRefMut<'a, T>> for HierarchicalStorageWriteLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> idtree::NodeRefMut<'a, T>{
+        unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>((*self.storage.get()).get_node_mut(guid)) }
     }
 }
 
@@ -651,7 +651,7 @@ impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedDataLocal<'a, 'b> for ReadHierarc
 {
     type Iter = <ReadGuardRef<'a, <T as Component<'a>>::Storage> as IntoOrderedIter>::OrderedIter;
     type Components = T;
-    type ComponentsRef = idtree::NodeIdRef<'a, T>;
+    type ComponentsRef = idtree::NodeRef<'a, T>;
     type Storage = HierarchicalStorageReadLocal<'a, <T as Component<'a>>::Storage, Self::Components>;
     fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
@@ -681,7 +681,7 @@ impl<'a, 'b, T: 'a + ComponentSync<'a>> OrderedDataLocal<'a,'b> for WriteHierarc
 {
     type Iter = <WriteGuardRef<'a, <T as Component<'a>>::Storage> as IntoOrderedIterMut>::OrderedIterMut;
     type Components = T;
-    type ComponentsRef = idtree::NodeIdMut<'a, T>;
+    type ComponentsRef = idtree::NodeRefMut<'a, T>;
     type Storage = HierarchicalStorageWriteLocal<'a, <T as Component<'a>>::Storage, Self::Components>;
     fn components_mask(world: &'b World<'a>) -> usize{
         world.components_mask::<T>()
@@ -951,7 +951,7 @@ pub struct ParentStorageRead<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + Comp
 
 impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, (&'a T, Option<&'a T>)> for ParentStorageRead<'a, S, T>{
     fn get(&self, guid: usize) -> (&'a T, Option<&'a T>){
-        let node = unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(self.storage.get_node(guid)) };
+        let node = unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(self.storage.get_node(guid)) };
         let parent = node.parent().map(|p| unsafe{ mem::transmute::<&T, &T>(&p) });
         unsafe{ mem::transmute::<(&T, Option<&T>), (&T, Option<&T>)>((&node, parent)) }
     }
@@ -1020,7 +1020,7 @@ pub struct ParentStorageWrite<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + Com
 
 impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync<'a>> StorageRef<'a, (&'a mut T, Option<&'a T>)> for ParentStorageWrite<'a, S, T>{
     fn get(&self, guid: usize) -> (&'a mut T, Option<&'a T>){
-        let mut node = unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>((*self.storage.get()).get_node_mut(guid)) };
+        let mut node = unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>((*self.storage.get()).get_node_mut(guid)) };
         let parent = node.parent().map(|p| unsafe{ mem::transmute::<&T, &T>(&p) });
         unsafe{ mem::transmute::<(&mut T, Option<&T>), (&mut T, Option<&T>)>((&mut node, parent)) }
     }

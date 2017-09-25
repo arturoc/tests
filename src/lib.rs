@@ -23,6 +23,8 @@ pub use system::*;
 pub use oneton_densevec::DenseOneToNVec;
 pub use assoc_vec::AssocVec;
 pub use hashmap::HashMapStorage;
+pub use idtree::{NodeRef, NodeRefMut};
+pub use sync::Ptr;
 
 mod sync;
 mod entity;

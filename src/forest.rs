@@ -145,12 +145,12 @@ impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
         ptr::write(self.index.get_unchecked_mut(guid), node_id.id());
     }
 
-    unsafe fn get_node(&self, guid: usize) -> idtree::NodeIdRef<T>{
+    unsafe fn get_node(&self, guid: usize) -> idtree::NodeRef<T>{
         let node_id = *self.index.get_unchecked(guid);
         self.arena.get(node_id)
     }
 
-    unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeIdMut<T>{
+    unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeRefMut<T>{
         let node_id = self.index.get_unchecked(guid);
         self.arena.get_mut(*node_id)
     }
@@ -241,15 +241,15 @@ pub struct ForestHierarchicalIter<'a, T: 'a>{
 }
 
 impl<'a, T: 'a> Iterator for ForestHierarchicalIter<'a, T>{
-    type Item = idtree::NodeIdRef<'a,T>;
-    fn next(&mut self) -> Option<idtree::NodeIdRef<'a,T>>{
+    type Item = idtree::NodeRef<'a,T>;
+    fn next(&mut self) -> Option<idtree::NodeRef<'a,T>>{
         if self.next == unsafe{(*self.forest.ordered_ids.get()).len()}{
             None
         }else{
             let next = unsafe{ *(*self.forest.ordered_ids.get()).get_unchecked(self.next) };
             let node = unsafe{ self.forest.get_node(next) };
             self.next += 1;
-            let node = unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(node) };
+            let node = unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(node) };
             Some(node)
         }
     }
@@ -287,15 +287,15 @@ pub struct ForestHierarchicalIterMut<'a, T: 'a>{
 }
 
 impl<'a, T: 'a> Iterator for ForestHierarchicalIterMut<'a, T>{
-    type Item = idtree::NodeIdMut<'a,T>;
-    fn next(&mut self) -> Option<idtree::NodeIdMut<'a,T>>{
+    type Item = idtree::NodeRefMut<'a,T>;
+    fn next(&mut self) -> Option<idtree::NodeRefMut<'a,T>>{
         if self.next == unsafe{(*self.forest.ordered_ids.get()).len()}{
             None
         }else{
             let next = unsafe{ *(*self.forest.ordered_ids.get()).get_unchecked(self.next) };
             let node = unsafe{ self.forest.get_node_mut(next) };
             self.next += 1;
-            let node = unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>(node) };
+            let node = unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>(node) };
             Some(node)
         }
     }
