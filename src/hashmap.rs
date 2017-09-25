@@ -14,8 +14,7 @@ pub struct HashMapStorage<T>{
 }
 
 impl<'a, T: 'a> Storage<'a,T> for HashMapStorage<T>{
-    type Get = &'a T;
-    type GetMut = &'a mut T;
+    type Get = T;
 
     fn new() -> HashMapStorage<T>{
         HashMapStorage{

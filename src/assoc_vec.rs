@@ -14,8 +14,7 @@ pub struct AssocVec<T>{
 }
 
 impl<'a, T: 'a> Storage<'a,T> for AssocVec<T>{
-    type Get = &'a T;
-    type GetMut = &'a mut T;
+    type Get = T;
 
     fn new() -> AssocVec<T>{
         AssocVec{

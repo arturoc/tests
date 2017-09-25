@@ -10,6 +10,7 @@ use ::Storage;
 use ::OneToNStorage;
 use ::HierarchicalStorage;
 use component::OneToNComponentSync;
+use sync::{ReadGuardRef, ReadGuard, Ptr};
 
 #[derive(Clone,Copy,Eq,PartialEq,Debug)]
 pub struct Entity {
@@ -137,12 +138,11 @@ impl<'a, 'b> Entities<'a, 'b>{
         S::into_iter(self.world)
     }
 
-    // pub fn component_for<C: ::ComponentSync<'a>>(&self, entity: Entity) -> <<C as Component<'a>>::Storage as Storage<'a, C>>::Get{
-    //     let storage = self.world.storage::<C>()
-    //         .expect(&format!("Trying to use non registered type {}", "type name"));//C::type_name()));
-    //     // unsafe{ storage.get(entity.guid()) }
-    //     unsafe{ storage.get(entity.guid()) }
-    // }
+    pub fn component_for<C: ::ComponentSync<'a>>(&self, entity: Entity) -> Ptr<'a,C> {
+        let storage = self.world.storage::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        Ptr::new(ReadGuardRef::new(ReadGuard::Sync(storage)), entity)
+    }
 }
 
 
@@ -163,10 +163,9 @@ impl<'a, 'b> EntitiesThreadLocal<'a, 'b>{
         S::into_iter(self.world)
     }
 
-    // pub fn component_for<C: ::ComponentThreadLocal<'a>>(&self, entity: Entity) -> <<C as Component<'a>>::Storage as Storage<'a, C>>::Get{
-    //     let storage = self.world.storage_thread_local::<C>()
-    //         .expect(&format!("Trying to use non registered type {}", "type name"));//C::type_name()));
-    //     unsafe{ storage.get(entity.guid()) }
-    //     // unsafe{ mem::transmute::<&C,&C>( storage.get(entity.guid()) )}
-    // }
+    pub fn component_for<C: ::ComponentSync<'a>>(&self, entity: Entity) -> Ptr<'a,C> {
+        let storage = self.world.storage_thread_local::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        Ptr::new(storage, entity)
+    }
 }

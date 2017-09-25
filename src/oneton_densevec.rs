@@ -50,8 +50,7 @@ impl<'a,T: 'a> OneToNStorage<'a,T> for DenseOneToNVec<T>{
 
 
 impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
-    type Get = &'a [T];
-    type GetMut = &'a mut [T];
+    type Get = [T];
 
     fn new() -> DenseOneToNVec<T>{
         DenseOneToNVec{

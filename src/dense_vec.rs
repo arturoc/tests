@@ -16,8 +16,7 @@ pub struct DenseVec<T>{
 }
 
 impl<'a, T: 'a> Storage<'a, T> for DenseVec<T>{
-    type Get = &'a T;
-    type GetMut = &'a mut T;
+    type Get = T;
 
     fn new() -> DenseVec<T>{
         DenseVec{
