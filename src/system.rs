@@ -1,4 +1,4 @@
-pub trait System<'a>{
+pub trait System<'a>: Send{
     fn run(&mut self, ::Entities<'a>, ::Resources<'a>){}
 }
 
@@ -6,7 +6,7 @@ pub trait SystemThreadLocal<'a>{
     fn run(&mut self, ::EntitiesThreadLocal<'a>, ::ResourcesThreadLocal<'a>){}
 }
 
-impl<'a, F: FnMut(::Entities<'a>, ::Resources<'a>)> System<'a> for F{
+impl<'a, F: FnMut(::Entities<'a>, ::Resources<'a>) + Send> System<'a> for F{
     fn run(&mut self, e: ::Entities<'a>, r: ::Resources<'a>){
         (*self)(e,r)
     }

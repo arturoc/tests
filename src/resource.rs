@@ -1,10 +1,12 @@
 use std::cell::{Ref,RefMut};
 
+#[derive(Clone, Copy)]
 pub struct Resources<'a>{
     world: &'a ::World
 }
 
 unsafe impl<'a> Send for Resources<'a>{}
+unsafe impl<'a> Sync for Resources<'a>{}
 
 impl<'a> Resources<'a>{
     pub fn new(world: &::World) -> Resources{
@@ -20,6 +22,7 @@ impl<'a> Resources<'a>{
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct ResourcesThreadLocal<'a>{
     world: &'a ::World
 }

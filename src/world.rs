@@ -5,12 +5,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
 use std::mem;
+use std::u32;
 
 use ::Entity;
 use component::{ComponentSync, Component, ComponentThreadLocal, OneToNComponentSync, OneToNComponentThreadLocal};
 use storage::{Storage, HierarchicalStorage, OneToNStorage};
 use entity::{EntityBuilder, Entities, EntitiesThreadLocal};
 use sync::*;
+use rayon::prelude::*;
 
 pub struct World{
     storages: HashMap<TypeId, Box<Any>>,
@@ -29,8 +31,9 @@ pub struct World{
     pub(crate) components_mask_index: HashMap<TypeId, usize>,
 
 
-    systems: Vec<(usize, Box<for<'a> ::system::System<'a>>)>,
+    systems: Vec<(usize, SyncSystem)>,
     systems_thread_local: Vec<(usize, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+    barriers: Vec<(usize)>,
     next_system_priority: AtomicUsize,
 }
 
@@ -51,6 +54,7 @@ impl World{
             remove_components_mask_index: HashMap::new(),
             systems: vec![],
             systems_thread_local: vec![],
+            barriers: vec![],
             next_system_priority: AtomicUsize::new(0),
         }
     }
@@ -252,7 +256,7 @@ impl World{
     where  for<'a> S: ::System<'a> + 'static
     {
         let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems.push((prio, Box::new(system)));
+        self.systems.push((prio, SyncSystem::new(system)));
         self
     }
 
@@ -264,33 +268,72 @@ impl World{
         self
     }
 
+    pub fn add_barrier(&mut self) -> &mut World
+    {
+        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.barriers.push(prio);
+        self
+    }
+
     pub fn run_once(&mut self){
-        let systems = unsafe{ mem::transmute::<
-                &mut Vec<(usize, Box<for<'a> ::system::System<'a>>)>,
-                &mut Vec<(usize, Box<for<'a> ::system::System<'a>>)>
-            >(&mut self.systems) };
         let systems_thread_local = unsafe{ mem::transmute::<
                 &mut Vec<(usize, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
                 &mut Vec<(usize, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
             >(&mut self.systems_thread_local) };
         let mut i_systems = 0;
         let mut i_systems_tl = 0;
+        let mut i_barriers = 0;
+        let entities = self.entities();
+        let resources = self.resources();
         loop {
-            let next_system = systems.get_mut(i_systems);
+            let next_system = self.systems.get(i_systems);
             let next_system_tl = systems_thread_local.get_mut(i_systems_tl);
+            let next_barrier = match self.barriers.get(i_barriers){
+                Some(barrier) => *barrier as u32,
+                None => u32::MAX,
+            };
             match (next_system, next_system_tl){
-                (Some(&mut(sys_prio, ref mut system)), Some(&mut(sys_tl_prio, ref mut system_tl))) => {
+                (Some(&(sys_prio, ref system)), Some(&mut(sys_tl_prio, ref mut system_tl))) => {
                     if sys_prio < sys_tl_prio {
-                        system.run(self.entities(), self.resources());
+                        let mut parallel_systems = vec![(sys_prio, system)];
                         i_systems += 1;
+                        while let Some(&(sys_prio, ref system)) = self.systems.get(i_systems){
+                            if sys_prio < sys_tl_prio  && sys_prio < next_barrier as usize{
+                                parallel_systems.push((sys_prio, system));
+                                i_systems += 1;
+                            }else{
+                                if sys_prio > next_barrier as usize{
+                                    i_barriers += 1;
+                                }
+                                break;
+                            }
+                        }
+                        parallel_systems.par_iter().for_each(|&(_, s)| {
+                            s.borrow_mut().run(entities, resources)
+                        });
                     }else{
                         system_tl.run(self.entities_thread_local(), self.resources_thread_local());
                         i_systems_tl += 1;
                     }
                 }
-                (Some(&mut(_, ref mut system)), None) => {
-                    system.run(self.entities(), self.resources());
+                (Some(&(sys_prio, ref system)), None) => {
+                    let mut parallel_systems = vec![(sys_prio, system)];
                     i_systems += 1;
+                    while let Some(&(sys_prio, ref system)) = self.systems.get(i_systems){
+                        if sys_prio < next_barrier as usize{
+                            parallel_systems.push((sys_prio, system));
+                            i_systems += 1;
+                        }else{
+                            if sys_prio > next_barrier as usize{
+                                i_barriers += 1;
+                            }
+                            break;
+                        }
+                    }
+
+                    parallel_systems.par_iter().for_each(|&(_, s)| {
+                        s.borrow_mut().run(entities, resources)
+                    });
                 }
                 (None, Some(&mut(_, ref mut system_tl))) => {
                     system_tl.run(self.entities_thread_local(), self.resources_thread_local());
@@ -299,9 +342,6 @@ impl World{
                 (None, None) => break
             }
         }
-        // for &mut (prio, ref mut system) in systems.iter_mut(){
-        //     system.run(self.entities(), self.resources())
-        // }
     }
 
     fn clear_entities_per_mask_index(&mut self){
@@ -456,3 +496,23 @@ impl World{
         }
     }
 }
+
+
+struct SyncSystem(UnsafeCell<Box<for<'a> ::system::System<'a>>>);
+
+impl SyncSystem{
+    fn new<S: for<'a> ::system::System<'a> + 'static>(s: S) -> SyncSystem{
+        SyncSystem(UnsafeCell::new(Box::new(s)))
+    }
+
+    fn borrow_mut(&self) -> &mut Box<for<'a> ::system::System<'a>>{
+        unsafe{ &mut *self.0.get() }
+    }
+
+    fn _borrow(&self) -> &Box<for<'a> ::system::System<'a>>{
+        unsafe{ &*self.0.get() }
+    }
+}
+
+unsafe impl Send for SyncSystem{}
+unsafe impl Sync for SyncSystem{}

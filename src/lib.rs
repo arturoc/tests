@@ -1,7 +1,6 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 #![cfg_attr(feature = "unstable", feature(get_type_id))]
 
-#[cfg(test)]
 extern crate rayon;
 extern crate fnv;
 

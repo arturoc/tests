@@ -174,7 +174,7 @@ impl<'a, T:HierarchicalOneToNComponent> HierarchyBuilder<'a, T>{
     }
 }
 
-
+#[derive(Clone, Copy)]
 pub struct Entities<'a>{
     world: &'a ::World,
 }

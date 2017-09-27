@@ -1,5 +1,4 @@
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
-use std::collections::HashMap;
 use std::cell::{Ref, RefMut};
 use std::mem;
 use std::ops::{Deref, DerefMut};
