@@ -7,4 +7,5 @@ authors = ["arturo castro <arturo@openframeworks.cc>"]
 unstable=[]
 
 [dependencies]
-rayon="*"
+rayon = "*"
+fnv = "*"
