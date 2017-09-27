@@ -1,14 +1,14 @@
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use std::cell::{RefCell, Ref, RefMut};
+use std::cell::{RefCell, Ref, RefMut, UnsafeCell};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
 use std::mem;
 
 use ::Entity;
-use component::{ComponentSync, Component, ComponentThreadLocal};
-use storage::{Storage, HierarchicalStorage};
+use component::{ComponentSync, Component, ComponentThreadLocal, OneToNComponentSync, OneToNComponentThreadLocal};
+use storage::{Storage, HierarchicalStorage, OneToNStorage};
 use entity::{EntityBuilder, Entities, EntitiesThreadLocal};
 use sync::*;
 
@@ -19,13 +19,19 @@ pub struct World{
 
     next_guid: AtomicUsize,
     entities: Vec<Entity>, // Doesn't need lock cause never accesed mut from Entities?
-    entities_index_per_mask: RwLock<HashMap<usize, Vec<usize>>>,
+    entities_index_per_mask: UnsafeCell<HashMap<usize, RwLock<Vec<usize>>>>,
+    entities_index_per_mask_guard: RwLock<()>,
     ordered_entities_index_per_mask: RwLock<HashMap<TypeId, HashMap<usize, Vec<usize>>>>,
     reverse_components_mask_index: HashMap<usize, TypeId>,
     remove_components_mask_index: HashMap<usize, Box<Fn(&World, usize)>>,
 
     next_component_mask: AtomicUsize,
     pub(crate) components_mask_index: HashMap<TypeId, usize>,
+
+
+    systems: Vec<(usize, Box<for<'a> ::system::System<'a>>)>,
+    systems_thread_local: Vec<(usize, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+    next_system_priority: AtomicUsize,
 }
 
 impl World{
@@ -38,10 +44,14 @@ impl World{
             next_component_mask: AtomicUsize::new(1),
             entities: Vec::new(),
             components_mask_index: HashMap::new(),
-            entities_index_per_mask: RwLock::new(HashMap::new()),
+            entities_index_per_mask_guard: RwLock::new(()),
+            entities_index_per_mask: UnsafeCell::new(HashMap::new()),
             ordered_entities_index_per_mask: RwLock::new(HashMap::new()),
             reverse_components_mask_index: HashMap::new(),
             remove_components_mask_index: HashMap::new(),
+            systems: vec![],
+            systems_thread_local: vec![],
+            next_system_priority: AtomicUsize::new(0),
         }
     }
 
@@ -79,7 +89,7 @@ impl World{
     }
 
     pub fn create_entity(&mut self) -> EntityBuilder{
-        self.entities_index_per_mask.get_mut().unwrap().clear();
+        self.clear_entities_per_mask_index();
         EntityBuilder::new(self)
     }
 
@@ -91,8 +101,60 @@ impl World{
         EntitiesThreadLocal::new(self)
     }
 
-    pub(crate) fn entities_ref(&self) -> &[Entity]{
-        &self.entities
+    pub fn add_component_to<C: ComponentSync>(&mut self, entity: &Entity, component: C){
+        self.clear_entities_per_mask_index();
+        {
+            let storage = self.storage_mut::<C>();
+            if let Some(mut storage) = storage{
+                storage.insert(entity.guid(), component)
+            }else{
+                panic!("Trying to add component of type {} without registering first", C::type_name())
+            }
+        };
+        let entity = &mut self.entities[entity.guid()];
+        entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()];
+    }
+
+    pub fn add_component_to_thread_local<C: ComponentThreadLocal>(&mut self, entity: &Entity, component: C){
+        self.clear_entities_per_mask_index();
+        {
+            let storage = self.storage_thread_local_mut::<C>();
+            if let Some(mut storage) = storage{
+                storage.insert(entity.guid(), component)
+            }else{
+                panic!("Trying to add component of type {} without registering first", C::type_name())
+            }
+        };
+        let entity = &mut self.entities[entity.guid()];
+        entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()];
+    }
+
+    pub fn add_slice_component_to<C: OneToNComponentSync>(&mut self, entity: &Entity, component: &[C]){
+        self.clear_entities_per_mask_index();
+        {
+            let storage = self.storage_mut::<C>();
+            if let Some(mut storage) = storage{
+                storage.insert_slice(entity.guid(), component)
+            }else{
+                panic!("Trying to add component of type {} without registering first", C::type_name())
+            }
+        };
+        let entity = &mut self.entities[entity.guid()];
+        entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()];
+    }
+
+    pub fn add_slice_component_to_thread_local<C: OneToNComponentThreadLocal>(&mut self, entity: &Entity, component: &[C]){
+        self.clear_entities_per_mask_index();
+        {
+            let storage = self.storage_thread_local_mut::<C>();
+            if let Some(mut storage) = storage{
+                storage.insert_slice(entity.guid(), component)
+            }else{
+                panic!("Trying to add component of type {} without registering first", C::type_name())
+            }
+        };
+        let entity = &mut self.entities[entity.guid()];
+        entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()];
     }
 
     pub fn remove_component_from<C: ::Component>(&mut self, entity: &::Entity){
@@ -110,7 +172,7 @@ impl World{
         if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(&type_id){
             cache.clear();
         }
-        self.entities_index_per_mask.write().unwrap().clear();
+        self.clear_entities_per_mask_index();
     }
 
     pub fn remove_entity(&mut self, entity: &::Entity){
@@ -133,7 +195,7 @@ impl World{
             mask *= 2;
         }
         // self.ordered_entities_index_per_mask.write().unwrap().clear();
-        self.entities_index_per_mask.write().unwrap().clear();
+        self.clear_entities_per_mask_index()
         // TODO: can't remove entities since we rely on order for fast entitty search
         // mostly on ordered_ids_for. others are add / remove component which could be slower
         // without problem
@@ -141,22 +203,116 @@ impl World{
         // self.entities.remove(pos);
     }
 
-    pub fn add_resource<T: 'static>(&mut self, resource: T){
+    pub fn add_resource<T: 'static + Send>(&mut self, resource: T){
         self.resources.insert(TypeId::of::<T>(), Box::new(RefCell::new(resource)) as Box<Any>);
     }
 
-    pub fn resource<T: 'static>(&self) -> Option<Ref<T>>{
+    pub fn resource<T: 'static + Send>(&self) -> Option<Ref<T>>{
         self.resources.get(&TypeId::of::<T>()).map(|t| {
             let t: &RefCell<T> = t.downcast_ref().unwrap();
             t.borrow()
         })
     }
 
-    pub fn resource_mut<T: 'static>(&self) -> Option<RefMut<T>>{
+    pub fn resource_mut<T: 'static + Send>(&self) -> Option<RefMut<T>>{
         self.resources.get(&TypeId::of::<T>()).map(|t| {
             let t: &RefCell<T> = t.downcast_ref().unwrap();
             t.borrow_mut()
         })
+    }
+
+    pub fn resources(&self) -> ::Resources{
+        ::Resources::new(self)
+    }
+
+
+    pub fn add_resource_thread_local<T: 'static>(&mut self, resource: T){
+        self.resources.insert(TypeId::of::<T>(), Box::new(RefCell::new(resource)) as Box<Any>);
+    }
+
+    pub fn resource_thread_local<T: 'static>(&self) -> Option<Ref<T>>{
+        self.resources.get(&TypeId::of::<T>()).map(|t| {
+            let t: &RefCell<T> = t.downcast_ref().unwrap();
+            t.borrow()
+        })
+    }
+
+    pub fn resource_thread_local_mut<T: 'static>(&self) -> Option<RefMut<T>>{
+        self.resources.get(&TypeId::of::<T>()).map(|t| {
+            let t: &RefCell<T> = t.downcast_ref().unwrap();
+            t.borrow_mut()
+        })
+    }
+
+    pub fn resources_thread_local(&self) -> ::ResourcesThreadLocal{
+        ::ResourcesThreadLocal::new(self)
+    }
+
+    pub fn add_system<S>(&mut self, system: S) -> &mut World
+    where  for<'a> S: ::System<'a> + 'static
+    {
+        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.systems.push((prio, Box::new(system)));
+        self
+    }
+
+    pub fn add_system_thread_local<S>(&mut self, system: S) -> &mut World
+    where  for<'a> S: ::SystemThreadLocal<'a> + 'static
+    {
+        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.systems_thread_local.push((prio, Box::new(system)));
+        self
+    }
+
+    pub fn run_once(&mut self){
+        let systems = unsafe{ mem::transmute::<
+                &mut Vec<(usize, Box<for<'a> ::system::System<'a>>)>,
+                &mut Vec<(usize, Box<for<'a> ::system::System<'a>>)>
+            >(&mut self.systems) };
+        let systems_thread_local = unsafe{ mem::transmute::<
+                &mut Vec<(usize, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+                &mut Vec<(usize, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
+            >(&mut self.systems_thread_local) };
+        let mut i_systems = 0;
+        let mut i_systems_tl = 0;
+        loop {
+            let next_system = systems.get_mut(i_systems);
+            let next_system_tl = systems_thread_local.get_mut(i_systems_tl);
+            match (next_system, next_system_tl){
+                (Some(&mut(sys_prio, ref mut system)), Some(&mut(sys_tl_prio, ref mut system_tl))) => {
+                    if sys_prio < sys_tl_prio {
+                        system.run(self.entities(), self.resources());
+                        i_systems += 1;
+                    }else{
+                        system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                        i_systems_tl += 1;
+                    }
+                }
+                (Some(&mut(_, ref mut system)), None) => {
+                    system.run(self.entities(), self.resources());
+                    i_systems += 1;
+                }
+                (None, Some(&mut(_, ref mut system_tl))) => {
+                    system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                    i_systems_tl += 1;
+                }
+                (None, None) => break
+            }
+        }
+        // for &mut (prio, ref mut system) in systems.iter_mut(){
+        //     system.run(self.entities(), self.resources())
+        // }
+    }
+
+    fn clear_entities_per_mask_index(&mut self){
+        unsafe{
+            let _guard = self.entities_index_per_mask_guard.write().unwrap();
+            (*self.entities_index_per_mask.get()).clear();
+        }
+    }
+
+    pub(crate) fn entities_ref(&self) -> &[Entity]{
+        &self.entities
     }
 
     pub(crate) fn next_guid(&mut self) -> usize{
@@ -210,18 +366,28 @@ impl World{
     }
 
     pub(crate) fn entities_for_mask(&self, mask: usize) -> IndexGuard{
-        if !self.entities_index_per_mask.read().unwrap().contains_key(&mask){
+        let contains_key = unsafe {
+            let _guard = self.entities_index_per_mask_guard.read().unwrap();
+            (*self.entities_index_per_mask.get()).contains_key(&mask)
+        };
+        if !contains_key {
             let entities = self.entities.iter().filter_map(|e|
                 if e.components_mask & mask == mask{
                     Some(e.guid())
                 }else{
                     None
-                }).collect();
-            self.entities_index_per_mask.write().unwrap().insert(mask, entities);
+                }).collect::<Vec<_>>();
+            unsafe{
+                let _guard = self.entities_index_per_mask_guard.write().unwrap();
+                (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));
+            }
         }
-        let _index_guard = self.entities_index_per_mask.read().unwrap();
-        let ptr = _index_guard[&mask].as_ptr();
-        let len = _index_guard[&mask].len();
+        let _index_guard = unsafe{
+            let _guard = self.entities_index_per_mask_guard.read().unwrap();
+            (*self.entities_index_per_mask.get()).get(&mask).unwrap().read().unwrap()
+        };
+        let ptr = _index_guard.as_ptr();
+        let len = _index_guard.len();
         let index = unsafe{ slice::from_raw_parts(ptr, len) };
         IndexGuard{
             _index_guard,
@@ -230,7 +396,7 @@ impl World{
     }
 
     pub(crate) fn ordered_entities_for<'a, C: Component>(&self, mask: usize) -> IndexGuard
-        where <C as Component>::Storage: ::HierarchicalStorage<C>{
+        where <C as Component>::Storage: ::HierarchicalStorage<'a,C>{
         if !self.ordered_entities_index_per_mask.write().unwrap().entry(TypeId::of::<<C as ::Component>::Storage>())
             .or_insert_with(|| HashMap::new())
             .contains_key(&mask){
@@ -241,11 +407,17 @@ impl World{
                 .map(|i| *i)
                 .filter(|i| self.entities[*i].components_mask & mask == mask)
                 .collect();
-            self.entities_index_per_mask.write().unwrap().insert(mask, entities);
+            unsafe{
+                let _guard = self.entities_index_per_mask_guard.write().unwrap();
+                (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));
+            }
         }
-        let _index_guard = self.entities_index_per_mask.read().unwrap();
-        let ptr = _index_guard[&mask].as_ptr();
-        let len = _index_guard[&mask].len();
+        let _index_guard = unsafe{
+            let _guard = self.entities_index_per_mask_guard.read().unwrap();
+            (*self.entities_index_per_mask.get()).get(&mask).unwrap().read().unwrap()
+        };
+        let ptr = _index_guard.as_ptr();
+        let len = _index_guard.len();
         let index = unsafe{ slice::from_raw_parts(ptr, len) };
         IndexGuard{
             _index_guard,
@@ -254,7 +426,7 @@ impl World{
     }
 
     pub(crate) fn thread_local_ordered_entities_for<'a, C: Component>(&self, mask: usize) -> IndexGuard
-        where <C as Component>::Storage: ::HierarchicalStorage<C>{
+        where <C as Component>::Storage: ::HierarchicalStorage<'a,C>{
         if !self.ordered_entities_index_per_mask.write().unwrap().entry(TypeId::of::<<C as ::Component>::Storage>())
             .or_insert_with(|| HashMap::new())
             .contains_key(&mask){
@@ -265,11 +437,18 @@ impl World{
                 .map(|i| *i)
                 .filter(|i| self.entities[*i].components_mask & mask == mask)
                 .collect();
-            self.entities_index_per_mask.write().unwrap().insert(mask, entities);
+            unsafe{
+                let _guard = self.entities_index_per_mask_guard.write().unwrap();
+                (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));
+            }
         }
-        let _index_guard = self.entities_index_per_mask.read().unwrap();
-        let ptr = _index_guard[&mask].as_ptr();
-        let len = _index_guard[&mask].len();
+        let _guard = self.entities_index_per_mask_guard.read().unwrap();
+        let _index_guard = unsafe{
+            let _guard = self.entities_index_per_mask_guard.read().unwrap();
+            (*self.entities_index_per_mask.get()).get(&mask).unwrap().read().unwrap()
+        };
+        let ptr = _index_guard.as_ptr();
+        let len = _index_guard.len();
         let index = unsafe{ slice::from_raw_parts(ptr, len) };
         IndexGuard{
             _index_guard,

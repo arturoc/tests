@@ -14,7 +14,11 @@ pub struct Forest<T>{
     ordered_ids: UnsafeCell<Vec<usize>>,
 }
 
-impl<T> Storage<T> for Forest<T>{
+impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
+    type Target = T;
+    type Get = &'a T;
+    type GetMut = &'a mut T;
+
     fn new() -> Forest<T>{
         Forest{
             arena: idtree::Arena::new(),
@@ -55,14 +59,22 @@ impl<T> Storage<T> for Forest<T>{
         unsafe{ (*self.ordered_ids.get()).clear() };
     }
 
-    unsafe fn get(&self, guid: usize) -> &T{
+    unsafe fn get(&'a self, guid: usize) -> &'a T{
         let node_id = self.index.get_unchecked(guid);
         &self.arena[*node_id]
     }
 
-    unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
+    unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
         let node_id = self.index.get_unchecked(guid);
         &mut self.arena[*node_id]
+    }
+
+    unsafe fn get_for_ptr(&self, guid: usize) -> &Self::Target{
+        self.get(guid)
+    }
+
+    unsafe fn get_for_ptr_mut(&mut self, guid: usize) -> &mut Self::Target{
+        self.get_mut(guid)
     }
 }
 
@@ -127,7 +139,7 @@ impl<'a, T> IntoIterMut for RwLockWriteGuard<'a, Forest<T>>{
 }
 
 
-impl<T> HierarchicalStorage<T> for Forest<T>{
+impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
     unsafe fn insert_child(&mut self, parent_guid: usize, guid: usize, value: T){
         let parent_id = *self.index.get_unchecked(parent_guid);
         let node_id = self.arena.get_mut(parent_id).append_new(value);
@@ -141,12 +153,12 @@ impl<T> HierarchicalStorage<T> for Forest<T>{
         ptr::write(self.index.get_unchecked_mut(guid), node_id.id());
     }
 
-    unsafe fn get_node(&self, guid: usize) -> idtree::NodeIdRef<T>{
+    unsafe fn get_node(&self, guid: usize) -> idtree::NodeRef<T>{
         let node_id = *self.index.get_unchecked(guid);
         self.arena.get(node_id)
     }
 
-    unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeIdMut<T>{
+    unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeRefMut<T>{
         let node_id = self.index.get_unchecked(guid);
         self.arena.get_mut(*node_id)
     }
@@ -237,15 +249,15 @@ pub struct ForestHierarchicalIter<'a, T: 'a>{
 }
 
 impl<'a, T: 'a> Iterator for ForestHierarchicalIter<'a, T>{
-    type Item = idtree::NodeIdRef<'a,T>;
-    fn next(&mut self) -> Option<idtree::NodeIdRef<'a,T>>{
+    type Item = idtree::NodeRef<'a,T>;
+    fn next(&mut self) -> Option<idtree::NodeRef<'a,T>>{
         if self.next == unsafe{(*self.forest.ordered_ids.get()).len()}{
             None
         }else{
             let next = unsafe{ *(*self.forest.ordered_ids.get()).get_unchecked(self.next) };
             let node = unsafe{ self.forest.get_node(next) };
             self.next += 1;
-            let node = unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(node) };
+            let node = unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(node) };
             Some(node)
         }
     }
@@ -283,15 +295,15 @@ pub struct ForestHierarchicalIterMut<'a, T: 'a>{
 }
 
 impl<'a, T: 'a> Iterator for ForestHierarchicalIterMut<'a, T>{
-    type Item = idtree::NodeIdMut<'a,T>;
-    fn next(&mut self) -> Option<idtree::NodeIdMut<'a,T>>{
+    type Item = idtree::NodeRefMut<'a,T>;
+    fn next(&mut self) -> Option<idtree::NodeRefMut<'a,T>>{
         if self.next == unsafe{(*self.forest.ordered_ids.get()).len()}{
             None
         }else{
             let next = unsafe{ *(*self.forest.ordered_ids.get()).get_unchecked(self.next) };
             let node = unsafe{ self.forest.get_node_mut(next) };
             self.next += 1;
-            let node = unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>(node) };
+            let node = unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>(node) };
             Some(node)
         }
     }

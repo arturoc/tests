@@ -12,7 +12,11 @@ pub struct VecStorage<T>{
     ids: Vec<usize>,
 }
 
-impl<T> Storage<T> for VecStorage<T>{
+impl<'a,T: 'a> Storage<'a,T> for VecStorage<T>{
+    type Target = T;
+    type Get = &'a T;
+    type GetMut = &'a mut T;
+
     fn new() -> VecStorage<T>{
         VecStorage{
             storage: vec![],
@@ -46,12 +50,20 @@ impl<T> Storage<T> for VecStorage<T>{
         }
     }
 
-    unsafe fn get(&self, guid: usize) -> &T{
+    unsafe fn get(&'a self, guid: usize) -> &'a T{
         self.storage.get_unchecked(guid)
     }
 
-    unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
+    unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
         self.storage.get_unchecked_mut(guid)
+    }
+
+    unsafe fn get_for_ptr(&self, guid: usize) -> &Self::Target{
+        self.get(guid)
+    }
+
+    unsafe fn get_for_ptr_mut(&mut self, guid: usize) -> &mut Self::Target{
+        self.get_mut(guid)
     }
 }
 

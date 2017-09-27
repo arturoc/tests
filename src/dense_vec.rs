@@ -3,7 +3,6 @@ use std::marker;
 use std::ptr;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
-// use std::mem;
 use std::usize;
 
 use storage::{Storage, IntoIter, IntoIterMut};
@@ -16,7 +15,11 @@ pub struct DenseVec<T>{
     len: usize,
 }
 
-impl<T> Storage<T> for DenseVec<T>{
+impl<'a, T: 'a> Storage<'a, T> for DenseVec<T>{
+    type Target = T;
+    type Get = &'a T;
+    type GetMut = &'a mut T;
+
     fn new() -> DenseVec<T>{
         DenseVec{
             storage: vec![],
@@ -57,12 +60,21 @@ impl<T> Storage<T> for DenseVec<T>{
         self.len -= 1;
     }
 
-    unsafe fn get(&self, guid: usize) -> &T{
-        self.storage.get_unchecked(*self.index.get_unchecked(guid))
+    unsafe fn get(&'a self, guid: usize) -> &'a T{
+        let idx = *self.index.get_unchecked(guid);
+        self.storage.get_unchecked(idx)
     }
 
-    unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
+    unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
         self.storage.get_unchecked_mut(*self.index.get_unchecked(guid))
+    }
+
+    unsafe fn get_for_ptr(&self, guid: usize) -> &Self::Target{
+        self.get(guid)
+    }
+
+    unsafe fn get_for_ptr_mut(&mut self, guid: usize) -> &mut Self::Target{
+        self.get_mut(guid)
     }
 }
 
@@ -88,6 +100,18 @@ impl<'a, T: 'a> Entry<'a, T>{
             }
         }
     }
+
+    pub fn or_insert_with<F>(self, default: F) -> &'a mut T
+        where F: FnOnce() -> T
+    {
+        match self{
+            Entry::Occupied(OccupiedEntry(t)) => t,
+            Entry::Vacant(VacantEntry{storage, guid}) => {
+                storage.insert(guid, default());
+                unsafe{ storage.get_mut(guid) }
+            }
+        }
+    }
 }
 
 impl<T> DenseVec<T>{
@@ -104,7 +128,7 @@ impl<T> DenseVec<T>{
     }
 
     pub fn entry(&mut self, guid: usize) -> Entry<T>{
-        if guid >= self.len{
+        if guid >= self.index.len() {
             Entry::Vacant(VacantEntry{storage: self, guid})
         }else{
             let idx = unsafe{ *self.index.get_unchecked(guid) };
@@ -114,6 +138,10 @@ impl<T> DenseVec<T>{
                 Entry::Occupied(OccupiedEntry(unsafe{ self.storage.get_unchecked_mut(idx) }))
             }
         }
+    }
+
+    pub fn contains(&self, guid: usize) -> bool{
+        guid < self.index.len() && unsafe{ *self.index.get_unchecked(guid) } < usize::MAX
     }
 }
 

@@ -18,7 +18,7 @@ pub struct DenseOneToNVec<T>{
     ids: Vec<usize>,
 }
 
-impl<T> OneToNStorage<T> for DenseOneToNVec<T>{
+impl<'a,T: 'a> OneToNStorage<'a,T> for DenseOneToNVec<T>{
     fn insert_slice(&mut self, guid: usize, t: &[T]) where T: Clone{
         let group = self.index.entry(guid)
             .or_insert(Group{first_index: self.vec.len(), len: 0});
@@ -43,7 +43,11 @@ impl<T> OneToNStorage<T> for DenseOneToNVec<T>{
 
 
 
-impl<T> Storage<T> for DenseOneToNVec<T>{
+impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
+    type Target = [T];
+    type Get = &'a [T];
+    type GetMut = &'a mut [T];
+
     fn new() -> DenseOneToNVec<T>{
         DenseOneToNVec{
             vec: vec![],
@@ -78,14 +82,28 @@ impl<T> Storage<T> for DenseOneToNVec<T>{
         }
     }
 
-    unsafe fn get(&self, guid: usize) -> &T{
+    unsafe fn get(&'a self, guid: usize) -> &'a [T]{
         let slice = &self.index.get(guid);
-        self.vec.get_unchecked(slice.first_index)
+        &self.vec[slice.first_index..slice.first_index + slice.len]
+
+        // let ptr = self.vec.as_ptr().offset(slice.first_index as isize);
+        // slice::from_raw_parts(ptr, slice.len)
     }
 
-    unsafe fn get_mut(&mut self, guid: usize) -> &mut T{
+    unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut [T]{
         let slice = &self.index.get(guid);
-        self.vec.get_unchecked_mut(slice.first_index)
+        &mut self.vec[slice.first_index..slice.first_index + slice.len]
+
+        // let ptr = self.vec.as_mut_ptr().offset(slice.first_index as isize);
+        // slice::from_raw_parts_mut(ptr, slice.len)
+    }
+
+    unsafe fn get_for_ptr(&self, guid: usize) -> &Self::Target{
+        self.get(guid)
+    }
+
+    unsafe fn get_for_ptr_mut(&mut self, guid: usize) -> &mut Self::Target{
+        self.get_mut(guid)
     }
 }
 

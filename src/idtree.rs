@@ -91,7 +91,7 @@ impl<T> Arena<T> {
     }
 
     /// Create a new node from its associated data.
-    pub fn new_node(&mut self, data: T) -> NodeIdMut<T>{
+    pub fn new_node(&mut self, data: T) -> NodeRefMut<T>{
         // let next_free = self.free.pop_front();
         // let id;
         // if let Some(idx) = next_free{
@@ -142,46 +142,59 @@ impl<T> Arena<T> {
             id: node_id,
         });
 
-        NodeIdMut{
+        NodeRefMut{
             id: node_id,
             arena: self
         }
     }
 
-    pub fn get(&self, id: NodeId) -> NodeIdRef<T>{
-        NodeIdRef{
+    pub fn get(&self, id: NodeId) -> NodeRef<T>{
+        NodeRef{
             arena: self,
             id,
         }
     }
 
-    pub fn get_mut(&mut self, id: NodeId) -> NodeIdMut<T>{
-        NodeIdMut{
+    pub fn get_mut(&mut self, id: NodeId) -> NodeRefMut<T>{
+        NodeRefMut{
             arena: self,
             id,
         }
     }
 
-    // pub fn contains(&self, id: NodeId) -> bool{
-    //     self.nodes.get(id.index).id.generation == id.generation &&
-    //     self.nodes[id.index].alive
-    // }
+    pub fn contains(&self, id: NodeId) -> bool{
+        self.nodes.contains(id.index)
+    }
 
     pub fn remove<N: Into<NodeId>>(&mut self, id: N){
         let id = id.into();
-        if unsafe{ self.nodes.get(id.index).parent().is_some() }{
-            for c in id.children(self).collect::<Vec<_>>(){
-                id.insert_after(c, self);
+        if self.contains(id){
+            if unsafe{ self.nodes.get(id.index).parent().is_some() }{
+                for c in id.children(self).collect::<Vec<_>>(){
+                    id.insert_after(c, self);
+                }
+            }else{
+                for c in id.children(self).collect::<Vec<_>>(){
+                    c.detach(self);
+                }
             }
-        }else{
-            for c in id.children(self).collect::<Vec<_>>(){
-                c.detach(self);
-            }
+            id.detach(self);
+            self.nodes.remove(id.index);
         }
-        id.detach(self);
-        self.nodes.remove(id.index);
     }
 
+    pub fn remove_tree<N: Into<NodeId>>(&mut self, id: N){
+        let id = id.into();
+        if self.contains(id){
+            if unsafe{ self.nodes.get(id.index).first_child().is_some() }{
+                for c in id.children(self).collect::<Vec<_>>(){
+                    self.remove_tree(c);
+                }
+            }else{
+                self.remove(id);
+            }
+        }
+    }
 
     // pub fn remove<N: Into<NodeId>>(&mut self, id: N) -> Result<(),()>{
     //     let id = id.into();
@@ -269,49 +282,49 @@ impl<'a, T: 'a> Iterator for AllNodesMut<'a, T>{
     }
 }
 
-pub struct NodeIdMut<'a, T: 'a>{
+pub struct NodeRefMut<'a, T: 'a>{
     id: NodeId,
     pub(crate) arena: &'a mut Arena<T>
 }
 
-impl<'a, T: 'a> NodeIdMut<'a, T>{
+impl<'a, T: 'a> NodeRefMut<'a, T>{
     pub fn id(&self) -> NodeId{
         self.id
     }
 
-    pub fn append<N: Into<NodeId>>(self, new_node: N) -> NodeIdMut<'a, T>{
+    pub fn append<N: Into<NodeId>>(self, new_node: N) -> NodeRefMut<'a, T>{
         let new_node = new_node.into();
         self.id.append(new_node, self.arena)
     }
 
-    pub fn append_new(self, new_data: T) -> NodeIdMut<'a, T>{
+    pub fn append_new(self, new_data: T) -> NodeRefMut<'a, T>{
         self.id.append_new(new_data, self.arena)
     }
 
-    pub fn prepend<N: Into<NodeId>>(self, new_node: N) -> NodeIdMut<'a, T>{
+    pub fn prepend<N: Into<NodeId>>(self, new_node: N) -> NodeRefMut<'a, T>{
         let new_node = new_node.into();
         self.id.prepend(new_node, self.arena)
     }
 
-    pub fn prepend_new(self, new_data: T) -> NodeIdMut<'a, T>{
+    pub fn prepend_new(self, new_data: T) -> NodeRefMut<'a, T>{
         self.id.append_new(new_data, self.arena)
     }
 
-    pub fn insert_after<N: Into<NodeId>>(self, new_node: N) -> NodeIdMut<'a, T>{
+    pub fn insert_after<N: Into<NodeId>>(self, new_node: N) -> NodeRefMut<'a, T>{
         let new_node = new_node.into();
         self.id.insert_after(new_node, self.arena)
     }
 
-    pub fn insert_after_new(self, new_data: T) -> NodeIdMut<'a, T>{
+    pub fn insert_after_new(self, new_data: T) -> NodeRefMut<'a, T>{
         self.id.insert_after_new(new_data, self.arena)
     }
 
-    pub fn insert_before<N: Into<NodeId>>(self, new_node: N) -> NodeIdMut<'a, T>{
+    pub fn insert_before<N: Into<NodeId>>(self, new_node: N) -> NodeRefMut<'a, T>{
         let new_node = new_node.into();
         self.id.insert_before(new_node, self.arena)
     }
 
-    pub fn insert_before_new(self, new_data: T) -> NodeIdMut<'a, T>{
+    pub fn insert_before_new(self, new_data: T) -> NodeRefMut<'a, T>{
         self.id.insert_before_new(new_data, self.arena)
     }
 
@@ -464,44 +477,44 @@ impl<'a, T: 'a> NodeIdMut<'a, T>{
     }
 
     // /// Return the ID of the first child of this node, unless it has no child.
-    // pub fn first_child(&self) -> Option<NodeIdMut> { self.first_child }
+    // pub fn first_child(&self) -> Option<NodeRefMut> { self.first_child }
     //
     // /// Return the ID of the last child of this node, unless it has no child.
-    // pub fn last_child(&self) -> Option<NodeIdMut> { self.last_child }
+    // pub fn last_child(&self) -> Option<NodeRefMut> { self.last_child }
     //
     // /// Return the ID of the previous sibling of this node, unless it is a first child.
-    // pub fn previous_sibling(&self) -> Option<NodeIdMut> { self.previous_sibling }
+    // pub fn previous_sibling(&self) -> Option<NodeRefMut> { self.previous_sibling }
     //
     // /// Return the ID of the previous sibling of this node, unless it is a first child.
-    // pub fn next_sibling(&self) -> Option<NodeIdMut> { self.next_sibling }
+    // pub fn next_sibling(&self) -> Option<NodeRefMut> { self.next_sibling }
 }
 
-impl<'a,T> From<NodeIdMut<'a,T>> for NodeId{
-    fn from(node: NodeIdMut<'a,T>) -> NodeId{
+impl<'a,T> From<NodeRefMut<'a,T>> for NodeId{
+    fn from(node: NodeRefMut<'a,T>) -> NodeId{
         node.id()
     }
 }
 
-impl<'a, T: 'a> Deref for NodeIdMut<'a,T>{
+impl<'a, T: 'a> Deref for NodeRefMut<'a,T>{
     type Target = Node<T>;
     fn deref(&self) -> &Node<T>{
         &self.arena[self.id]
     }
 }
 
-impl<'a, T: 'a> DerefMut for NodeIdMut<'a,T>{
+impl<'a, T: 'a> DerefMut for NodeRefMut<'a,T>{
     fn deref_mut(&mut self) -> &mut Node<T>{
         &mut self.arena[self.id]
     }
 }
 
 
-pub struct NodeIdRef<'a, T: 'a>{
+pub struct NodeRef<'a, T: 'a>{
     id: NodeId,
     arena: &'a Arena<T>
 }
 
-impl<'a, T: 'a> NodeIdRef<'a, T>{
+impl<'a, T: 'a> NodeRef<'a, T>{
     pub fn id(&self) -> NodeId{
         self.id
     }
@@ -634,10 +647,10 @@ impl<'a, T: 'a> NodeIdRef<'a, T>{
     }
 
     /// Return the ID of the parent node, unless this node is the root of the tree.
-    pub fn parent(&self) -> Option<NodeIdRef<'a,T>> {
+    pub fn parent(&self) -> Option<NodeRef<'a,T>> {
         let id = self.arena[self.id].parent;
         id.map(move |id|{
-            NodeIdRef{
+            NodeRef{
                 id,
                 arena: self.arena
             }
@@ -645,13 +658,13 @@ impl<'a, T: 'a> NodeIdRef<'a, T>{
     }
 }
 
-impl<'a,T> From<NodeIdRef<'a,T>> for NodeId{
-    fn from(node: NodeIdRef<'a,T>) -> NodeId{
+impl<'a,T> From<NodeRef<'a,T>> for NodeId{
+    fn from(node: NodeRef<'a,T>) -> NodeId{
         node.id
     }
 }
 
-impl<'a, T: 'a> Deref for NodeIdRef<'a,T>{
+impl<'a, T: 'a> Deref for NodeRef<'a,T>{
     type Target = Node<T>;
     fn deref(&self) -> &Node<T>{
         &self.arena[self.id]
@@ -804,7 +817,7 @@ impl NodeId {
     }
 
     /// Detach a node from its parent and siblings. Children are not affected.
-    pub fn detach<T>(self, arena: &mut Arena<T>) -> NodeIdMut<T> {
+    pub fn detach<T>(self, arena: &mut Arena<T>) -> NodeRefMut<T> {
         let (parent, previous_sibling, next_sibling) = {
             let node = &mut arena[self];
             (node.parent.take(), node.previous_sibling.take(), node.next_sibling.take())
@@ -821,14 +834,14 @@ impl NodeId {
         } else if let Some(parent) = parent {
             arena[parent].first_child = next_sibling;
         }
-        NodeIdMut{
+        NodeRefMut{
             id: self,
             arena
         }
     }
 
     /// Append a new child to this node, after existing children.
-    pub fn append<T>(self, new_child: NodeId, arena: &mut Arena<T>) -> NodeIdMut<T> {
+    pub fn append<T>(self, new_child: NodeId, arena: &mut Arena<T>) -> NodeRefMut<T> {
         new_child.detach(arena);
         let last_child_opt;
         {
@@ -847,19 +860,19 @@ impl NodeId {
             debug_assert!(arena[last_child].next_sibling.is_none());
             arena[last_child].next_sibling = Some(new_child);
         }
-        NodeIdMut{
+        NodeRefMut{
             id: new_child,
             arena
         }
     }
 
-    pub fn append_new<T>(self, new_data: T, arena: &mut Arena<T>) -> NodeIdMut<T> {
+    pub fn append_new<T>(self, new_data: T, arena: &mut Arena<T>) -> NodeRefMut<T> {
         let new_node = arena.new_node(new_data).id();
         self.append(new_node, arena)
     }
 
     /// Prepend a new child to this node, before existing children.
-    pub fn prepend<T>(self, new_child: NodeId, arena: &mut Arena<T>) -> NodeIdMut<T>  {
+    pub fn prepend<T>(self, new_child: NodeId, arena: &mut Arena<T>) -> NodeRefMut<T>  {
         new_child.detach(arena);
         let first_child_opt;
         {
@@ -878,19 +891,19 @@ impl NodeId {
             debug_assert!(arena[first_child].previous_sibling.is_none());
             arena[first_child].previous_sibling = Some(new_child);
         }
-        NodeIdMut{
+        NodeRefMut{
             id: new_child,
             arena
         }
     }
 
-    pub fn prepend_new<T>(self, new_data: T, arena: &mut Arena<T>) -> NodeIdMut<T> {
+    pub fn prepend_new<T>(self, new_data: T, arena: &mut Arena<T>) -> NodeRefMut<T> {
         let new_node = arena.new_node(new_data).id();
         self.prepend(new_node, arena)
     }
 
     /// Insert a new sibling after this node.
-    pub fn insert_after<T>(self, new_sibling: NodeId, arena: &mut Arena<T>) -> NodeIdMut<T>  {
+    pub fn insert_after<T>(self, new_sibling: NodeId, arena: &mut Arena<T>) -> NodeRefMut<T>  {
         new_sibling.detach(arena);
         let next_sibling_opt;
         let parent_opt;
@@ -912,19 +925,19 @@ impl NodeId {
             debug_assert!(arena[parent].last_child.unwrap() == self);
             arena[parent].last_child = Some(new_sibling);
         }
-        NodeIdMut{
+        NodeRefMut{
             id: new_sibling,
             arena
         }
     }
 
-    pub fn insert_after_new<T>(self, new_data: T, arena: &mut Arena<T>) -> NodeIdMut<T> {
+    pub fn insert_after_new<T>(self, new_data: T, arena: &mut Arena<T>) -> NodeRefMut<T> {
         let new_node = arena.new_node(new_data).id();
         self.insert_after(new_node, arena)
     }
 
     /// Insert a new sibling before this node.
-    pub fn insert_before<T>(self, new_sibling: NodeId, arena: &mut Arena<T>) -> NodeIdMut<T>  {
+    pub fn insert_before<T>(self, new_sibling: NodeId, arena: &mut Arena<T>) -> NodeRefMut<T>  {
         new_sibling.detach(arena);
         let previous_sibling_opt;
         let parent_opt;
@@ -946,13 +959,13 @@ impl NodeId {
             debug_assert!(arena[parent].first_child.unwrap() == self);
             arena[parent].first_child = Some(new_sibling);
         }
-        NodeIdMut{
+        NodeRefMut{
             id: new_sibling,
             arena
         }
     }
 
-    pub fn insert_before_new<T>(self, new_data: T, arena: &mut Arena<T>) -> NodeIdMut<T> {
+    pub fn insert_before_new<T>(self, new_data: T, arena: &mut Arena<T>) -> NodeRefMut<T> {
         let new_node = arena.new_node(new_data).id();
         self.insert_before(new_node, arena)
     }
@@ -980,9 +993,9 @@ macro_rules! impl_node_iterator {
 macro_rules! impl_node_ref_iterator {
     ($name: ident, $next: expr) => {
         impl<'a, T> Iterator for $name<'a, T> {
-            type Item = NodeIdRef<'a, T>;
+            type Item = NodeRef<'a, T>;
 
-            fn next(&mut self) -> Option<NodeIdRef<'a, T>> {
+            fn next(&mut self) -> Option<NodeRef<'a, T>> {
                 match self.node.take() {
                     Some(node) => {
                         self.node = $next(&self.arena[node]);
@@ -998,9 +1011,9 @@ macro_rules! impl_node_ref_iterator {
 macro_rules! impl_node_mut_iterator {
     ($name: ident, $next: expr) => {
         impl<'a, T> Iterator for $name<'a, T> {
-            type Item = NodeIdMut<'a, T>;
+            type Item = NodeRefMut<'a, T>;
 
-            fn next(&mut self) -> Option<NodeIdMut<'a, T>> {
+            fn next(&mut self) -> Option<NodeRefMut<'a, T>> {
                 match self.node.take() {
                     Some(node) => {
                         self.node = $next(&self.arena[node]);
@@ -1105,9 +1118,9 @@ impl_node_ref_iterator!(ReverseChildrenRef, |node: &Node<T>| node.previous_sibli
 pub struct DescendantsRef<'a, T: 'a>(Traverse<'a, T>);
 
 impl<'a, T> Iterator for DescendantsRef<'a, T> {
-    type Item = NodeIdRef<'a,T>;
+    type Item = NodeRef<'a,T>;
 
-    fn next(&mut self) -> Option<NodeIdRef<'a,T>> {
+    fn next(&mut self) -> Option<NodeRef<'a,T>> {
         loop {
             match self.0.next() {
                 Some(NodeEdge::Start(node)) => return Some(self.0.arena.get(node)),
@@ -1158,9 +1171,9 @@ impl<'a, T> Iterator for DescendantsRef<'a, T> {
 pub struct DescendantsMut<'a, T: 'a>(TraverseMut<'a, T>);
 
 impl<'a, T> Iterator for DescendantsMut<'a, T> {
-    type Item = NodeIdMut<'a,T>;
+    type Item = NodeRefMut<'a,T>;
 
-    fn next(&mut self) -> Option<NodeIdMut<'a,T>> {
+    fn next(&mut self) -> Option<NodeRefMut<'a,T>> {
         loop {
             match self.0.next() {
                 Some(NodeEdge::Start(node)) => return unsafe{mem::transmute(Some(self.0.arena.get_mut(node)))},

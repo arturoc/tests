@@ -12,13 +12,18 @@ use ::World;
 use ::IndexGuard;
 use ::Entity;
 
-pub trait Storage<T>{
+pub trait Storage<'a, T>{
+    type Target: ?Sized;
+    type Get;
+    type GetMut;
     fn new() -> Self;
     fn with_capacity(usize) -> Self;
     fn insert(&mut self, guid: usize, t: T);
     fn remove(&mut self, guid: usize);
-    unsafe fn get(&self, guid: usize) -> &T;
-    unsafe fn get_mut(&mut self, guid: usize) -> &mut T;
+    unsafe fn get(&'a self, guid: usize) -> Self::Get;
+    unsafe fn get_mut(&'a mut self, guid: usize) -> Self::GetMut;
+    unsafe fn get_for_ptr(&self, guid: usize) -> &Self::Target;
+    unsafe fn get_for_ptr_mut(&mut self, guid: usize) -> &mut Self::Target;
 }
 
 pub trait IntoIter{
@@ -42,12 +47,12 @@ pub struct Write<'a, T: 'a + Component>{
 pub struct ReadEntities;
 
 // Sync Read/Write
-pub struct StorageRead<'a, S: Storage<T> + 'a, T: 'a + ComponentSync>{
+pub struct StorageRead<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync>{
     storage: RwLockReadGuard<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct StorageWrite<'a, S: Storage<T> + 'a, T: 'a + ComponentSync>{
+pub struct StorageWrite<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync>{
     storage: UnsafeCell<RwLockWriteGuard<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
@@ -56,15 +61,22 @@ pub trait StorageRef<'a, T>{
     fn get(&self, guid: usize) -> T;
 }
 
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, &'a T> for StorageRead<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a T{
-        unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, <S as Storage<'a,T>>::Get> for StorageRead<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::Get{
+        // unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
+
+        let storage = unsafe{ mem::transmute::<&S, &S>(&self.storage) };
+        unsafe{ storage.get(guid) }
     }
 }
 
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, &'a mut T> for StorageWrite<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a mut T{
-        unsafe{ mem::transmute::<&mut T, &mut T>( (*self.storage.get()).get_mut(guid) ) }
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, <S as Storage<'a,T>>::GetMut> for StorageWrite<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::GetMut{
+        // unsafe{ mem::transmute::<&mut T, &mut T>( (*self.storage.get()).get_mut(guid) ) }
+
+
+        let storage = unsafe{ mem::transmute::<&mut S, &mut S>(&mut (*self.storage.get())) };
+        unsafe{ storage.get_mut(guid) }
     }
 }
 
@@ -83,7 +95,7 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Read<'a,T>
 {
     type Iter = <RwLockReadGuard<'a, <T as Component>::Storage> as IntoIter>::Iter;
     type Components = T;
-    type ComponentsRef = &'a T;
+    type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::Get;
     type Storage = StorageRead<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> usize{
         world.components_mask::<T>()
@@ -106,7 +118,7 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Write<'a,T>
 {
     type Iter = <RwLockWriteGuard<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
     type Components = T;
-    type ComponentsRef = &'a mut T;
+    type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::GetMut;
     type Storage = StorageWrite<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> usize{
         world.components_mask::<T>()
@@ -156,25 +168,29 @@ impl<'a> UnorderedData<'a> for ReadEntities {
 }
 
 // Thread local Read/Write
-pub struct StorageReadLocal<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal>{
+pub struct StorageReadLocal<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal>{
     storage: ReadGuardRef<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct StorageWriteLocal<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal>{
+pub struct StorageWriteLocal<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal>{
     storage: UnsafeCell<WriteGuardRef<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, &'a T> for StorageReadLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a T{
-        unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, <S as Storage<'a,T>>::Get> for StorageReadLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::Get{
+        //unsafe{ mem::transmute::<&T, &T>(self.storage.get(guid)) }
+        let storage = unsafe{ mem::transmute::<&S, &S>(&self.storage) };
+        unsafe{ storage.get(guid) }
     }
 }
 
-impl<'a, S: Storage<T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, &'a mut T> for StorageWriteLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> &'a mut T{
-        unsafe{ mem::transmute::<&mut T, &mut T>((*self.storage.get()).get_mut(guid)) }
+impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, <S as Storage<'a,T>>::GetMut> for StorageWriteLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> <S as Storage<'a,T>>::GetMut{
+        // unsafe{ mem::transmute::<&mut T, &mut T>((*self.storage.get()).get_mut(guid)) }
+        let storage = unsafe{ mem::transmute::<&mut S, &mut S>(&mut (*self.storage.get())) };
+        unsafe{ storage.get_mut(guid) }
     }
 }
 
@@ -193,7 +209,7 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Read<'a,T>
 {
     type Iter = <ReadGuardRef<'a, <T as Component>::Storage> as IntoIter>::Iter;
     type Components = T;
-    type ComponentsRef = &'a T;
+    type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::Get;
     type Storage = StorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> usize{
         world.components_mask::<T>()
@@ -216,7 +232,7 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Write<'a,T>
 {
     type Iter = <WriteGuardRef<'a, <T as Component>::Storage> as IntoIterMut>::IterMut;
     type Components = T;
-    type ComponentsRef = &'a mut T;
+    type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::GetMut;
     type Storage = StorageWriteLocal<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> usize{
         world.components_mask::<T>()
@@ -234,6 +250,24 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Write<'a,T>
     }
 }
 
+
+impl<'a> UnorderedDataLocal<'a> for ReadEntities {
+    type Iter = slice::Iter<'a,Entity>;
+    type Components = Entity;
+    type ComponentsRef = &'a Entity;
+    type Storage = &'a [Entity];
+    fn components_mask(_world: &'a World) -> usize{
+        0
+    }
+
+    fn into_iter(world: &'a ::World) -> Self::Iter{
+        world.entities_ref().iter()
+    }
+
+    fn storage(world: &'a ::World) -> Self::Storage{
+        world.entities_ref()
+    }
+}
 
 
 //-------------------------------------------------------------------
@@ -459,10 +493,10 @@ impl<'a,T:'a,I> IntoHierarchicalIterMut<'a,T> for I
     }
 }
 
-pub trait HierarchicalStorage<T>: Storage<T>{
+pub trait HierarchicalStorage<'a,T>: Storage<'a,T>{
     unsafe fn insert_child(&mut self, parent_guid: usize, guid: usize, value: T);
-    unsafe fn get_node(&self, guid: usize) -> idtree::NodeIdRef<T>;
-    unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeIdMut<T>;
+    unsafe fn get_node(&self, guid: usize) -> idtree::NodeRef<T>;
+    unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeRefMut<T>;
     fn ordered_ids(&self) -> &[usize];
 }
 
@@ -476,26 +510,26 @@ pub struct WriteHierarchical<'a, T: 'a + Component>{
 
 
 // Sync Hierarchical Read/Write
-pub struct HierarchicalStorageRead<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync>{
+pub struct HierarchicalStorageRead<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync>{
     storage: RwLockReadGuard<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct HierarchicalStorageWrite<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync>{
+pub struct HierarchicalStorageWrite<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync>{
     storage: UnsafeCell<RwLockWriteGuard<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeIdRef<'a, T>> for HierarchicalStorageRead<'a, S, T>{
-    fn get(&self, guid: usize) -> idtree::NodeIdRef<'a, T>{
-        unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(self.storage.get_node(guid)) }
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeRef<'a, T>> for HierarchicalStorageRead<'a, S, T>{
+    fn get(&self, guid: usize) -> idtree::NodeRef<'a, T>{
+        unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(self.storage.get_node(guid)) }
     }
 }
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeIdMut<'a, T>> for HierarchicalStorageWrite<'a, S, T>{
-    fn get(&self, guid: usize) -> idtree::NodeIdMut<'a, T>{
-        unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>((*self.storage.get()).get_node_mut(guid)) }
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeRefMut<'a, T>> for HierarchicalStorageWrite<'a, S, T>{
+    fn get(&self, guid: usize) -> idtree::NodeRefMut<'a, T>{
+        unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>((*self.storage.get()).get_node_mut(guid)) }
     }
 }
 
@@ -513,12 +547,12 @@ pub trait OrderedData<'a>{
 
 
 impl<'a, T: 'a + ComponentSync> OrderedData<'a> for ReadHierarchical<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
+    where <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoOrderedIter
 {
     type Iter = <RwLockReadGuard<'a, <T as Component>::Storage> as IntoOrderedIter>::OrderedIter;
     type Components = T;
-    type ComponentsRef = idtree::NodeIdRef<'a, T>;
+    type ComponentsRef = idtree::NodeRef<'a, T>;
     type Storage = HierarchicalStorageRead<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> usize{
         world.components_mask::<T>()
@@ -542,12 +576,12 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for ReadHierarchical<'a,T>
 
 
 impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteHierarchical<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
+    where <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoOrderedIterMut
 {
     type Iter = <RwLockWriteGuard<'a, <T as Component>::Storage> as IntoOrderedIterMut>::OrderedIterMut;
     type Components = T;
-    type ComponentsRef = idtree::NodeIdMut<'a, T>;
+    type ComponentsRef = idtree::NodeRefMut<'a, T>;
     type Storage = HierarchicalStorageWrite<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> usize{
         world.components_mask::<T>()
@@ -570,26 +604,26 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteHierarchical<'a,T>
 }
 
 // Local Hierarchical Read/Write
-pub struct HierarchicalStorageReadLocal<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentThreadLocal>{
+pub struct HierarchicalStorageReadLocal<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentThreadLocal>{
     storage: ReadGuardRef<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-pub struct HierarchicalStorageWriteLocal<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentThreadLocal>{
+pub struct HierarchicalStorageWriteLocal<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentThreadLocal>{
     storage: UnsafeCell<WriteGuardRef<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeIdRef<'a, T>> for HierarchicalStorageReadLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> idtree::NodeIdRef<'a, T>{
-        unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(self.storage.get_node(guid)) }
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeRef<'a, T>> for HierarchicalStorageReadLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> idtree::NodeRef<'a, T>{
+        unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(self.storage.get_node(guid)) }
     }
 }
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeIdMut<'a, T>> for HierarchicalStorageWriteLocal<'a, S, T>{
-    fn get(&self, guid: usize) -> idtree::NodeIdMut<'a, T>{
-        unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>((*self.storage.get()).get_node_mut(guid)) }
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeRefMut<'a, T>> for HierarchicalStorageWriteLocal<'a, S, T>{
+    fn get(&self, guid: usize) -> idtree::NodeRefMut<'a, T>{
+        unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>((*self.storage.get()).get_node_mut(guid)) }
     }
 }
 
@@ -607,12 +641,12 @@ pub trait OrderedDataLocal<'a>{
 
 
 impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for ReadHierarchical<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
+    where <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> ReadGuardRef<'b, <T as Component>::Storage>: IntoOrderedIter
 {
     type Iter = <ReadGuardRef<'a, <T as Component>::Storage> as IntoOrderedIter>::OrderedIter;
     type Components = T;
-    type ComponentsRef = idtree::NodeIdRef<'a, T>;
+    type ComponentsRef = idtree::NodeRef<'a, T>;
     type Storage = HierarchicalStorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> usize{
         world.components_mask::<T>()
@@ -636,12 +670,12 @@ impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for ReadHierarchical<'a,T>
 
 
 impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for WriteHierarchical<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
+    where <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> WriteGuardRef<'b, <T as Component>::Storage>: IntoOrderedIterMut
 {
     type Iter = <WriteGuardRef<'a, <T as Component>::Storage> as IntoOrderedIterMut>::OrderedIterMut;
     type Components = T;
-    type ComponentsRef = idtree::NodeIdMut<'a, T>;
+    type ComponentsRef = idtree::NodeRefMut<'a, T>;
     type Storage = HierarchicalStorageWriteLocal<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> usize{
         world.components_mask::<T>()
@@ -899,21 +933,21 @@ pub struct WriteAndParent<'a, T: 'a + Component>{
 }
 
 
-pub struct ParentStorageRead<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync>{
+pub struct ParentStorageRead<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync>{
     storage: RwLockReadGuard<'a, S>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, (&'a T, Option<&'a T>)> for ParentStorageRead<'a, S, T>{
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, (&'a T, Option<&'a T>)> for ParentStorageRead<'a, S, T>{
     fn get(&self, guid: usize) -> (&'a T, Option<&'a T>){
-        let node = unsafe{ mem::transmute::<idtree::NodeIdRef<T>, idtree::NodeIdRef<T>>(self.storage.get_node(guid)) };
+        let node = unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(self.storage.get_node(guid)) };
         let parent = node.parent().map(|p| unsafe{ mem::transmute::<&T, &T>(&p) });
         unsafe{ mem::transmute::<(&T, Option<&T>), (&T, Option<&T>)>((&node, parent)) }
     }
 }
 
 pub struct ReadAndParentIter<'a, T: Component>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
+    where <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoHierarchicalIter<'b,T>
 {
     it: ForestHierarchicalIter<'a, T> //<RwLockWriteGuard<'a, <T as Component>::Storage> as IntoOrderedIterMut>::OrderedIterMut
@@ -921,7 +955,7 @@ pub struct ReadAndParentIter<'a, T: Component>
 
 impl<'a,T> Iterator for ReadAndParentIter<'a, T>
     where T: Component,
-          <T as Component>::Storage: HierarchicalStorage<T>,
+          <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoHierarchicalIter<'b,T>,
 {
     type Item = (&'a T, Option<&'a T>);
@@ -936,7 +970,7 @@ impl<'a,T> Iterator for ReadAndParentIter<'a, T>
 
 
 impl<'a, T: 'a + ComponentSync> OrderedData<'a> for ReadAndParent<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
+    where <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> RwLockReadGuard<'b, <T as Component>::Storage>: IntoHierarchicalIter<'b,T>
 {
     type Iter = ReadAndParentIter<'a,T>;
@@ -967,21 +1001,21 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for ReadAndParent<'a,T>
 
 
 
-pub struct ParentStorageWrite<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync>{
+pub struct ParentStorageWrite<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync>{
     storage: UnsafeCell<RwLockWriteGuard<'a, S>>,
     _marker: marker::PhantomData<&'a T>,
 }
 
-impl<'a, S: HierarchicalStorage<T> + 'a, T: 'a + ComponentSync> StorageRef<'a, (&'a mut T, Option<&'a T>)> for ParentStorageWrite<'a, S, T>{
+impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, (&'a mut T, Option<&'a T>)> for ParentStorageWrite<'a, S, T>{
     fn get(&self, guid: usize) -> (&'a mut T, Option<&'a T>){
-        let mut node = unsafe{ mem::transmute::<idtree::NodeIdMut<T>, idtree::NodeIdMut<T>>((*self.storage.get()).get_node_mut(guid)) };
+        let mut node = unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>((*self.storage.get()).get_node_mut(guid)) };
         let parent = node.parent().map(|p| unsafe{ mem::transmute::<&T, &T>(&p) });
         unsafe{ mem::transmute::<(&mut T, Option<&T>), (&mut T, Option<&T>)>((&mut node, parent)) }
     }
 }
 
 pub struct WriteAndParentIter<'a, T: Component>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
+    where <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoHierarchicalIterMut<'b,T>
 {
     it: ForestHierarchicalIterMut<'a, T> //<RwLockWriteGuard<'a, <T as Component>::Storage> as IntoOrderedIterMut>::OrderedIterMut
@@ -989,7 +1023,7 @@ pub struct WriteAndParentIter<'a, T: Component>
 
 impl<'a,T> Iterator for WriteAndParentIter<'a, T>
     where T: Component,
-          <T as Component>::Storage: HierarchicalStorage<T>,
+          <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoHierarchicalIterMut<'b,T>,
 {
     type Item = (&'a mut T, Option<&'a T>);
@@ -1003,7 +1037,7 @@ impl<'a,T> Iterator for WriteAndParentIter<'a, T>
 }
 
 impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteAndParent<'a,T>
-    where <T as Component>::Storage: HierarchicalStorage<T>,
+    where <T as Component>::Storage: HierarchicalStorage<'a,T>,
           for<'b> RwLockWriteGuard<'b, <T as Component>::Storage>: IntoHierarchicalIterMut<'b,T>
 {
     type Iter = WriteAndParentIter<'a,T>;
@@ -1036,12 +1070,18 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteAndParent<'a,T>
 // OneToN
 // use component::{OneToNComponent, OneToNComponentSync, OneToNComponentThreadLocal};
 
-pub trait OneToNStorage<T>: Storage<T>{
+pub trait OneToNStorage<'a,T>: Storage<'a,T>{
     fn insert_slice(&mut self, guid: usize, t: &[T]) where T: Clone;
     unsafe fn get_slice(&self, guid: usize) -> &[T];
     unsafe fn get_slice_mut(&mut self, guid: usize) -> &mut [T];
 }
 
+
+// OneToNHierarchical
+pub trait HierarchicalOneToNStorage<'a,T>: Storage<'a,T>{
+    unsafe fn insert_root(&mut self, guid: usize, t: T) -> idtree::NodeRefMut<T>;
+    unsafe fn insert_child(&mut self, parent: idtree::NodeId, t: T) -> idtree::NodeRefMut<T>;
+}
 
 // pub struct ReadOneToN<'a, T: 'a + OneToNComponent>{
 //     marker: marker::PhantomData<&'a T>,

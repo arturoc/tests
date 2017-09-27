@@ -2,9 +2,18 @@ pub trait System<'a>{
     fn run(&mut self, ::Entities<'a>, ::Resources<'a>){}
 }
 
+pub trait SystemThreadLocal<'a>{
+    fn run(&mut self, ::EntitiesThreadLocal<'a>, ::ResourcesThreadLocal<'a>){}
+}
 
 impl<'a, F: FnMut(::Entities<'a>, ::Resources<'a>)> System<'a> for F{
     fn run(&mut self, e: ::Entities<'a>, r: ::Resources<'a>){
+        (*self)(e,r)
+    }
+}
+
+impl<'a, F: FnMut(::EntitiesThreadLocal<'a>, ::ResourcesThreadLocal<'a>)> SystemThreadLocal<'a> for F{
+    fn run(&mut self, e: ::EntitiesThreadLocal<'a>, r: ::ResourcesThreadLocal<'a>){
         (*self)(e,r)
     }
 }
