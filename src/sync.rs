@@ -106,35 +106,41 @@ impl<'a, S: 'a> DerefMut for WriteGuardRef<'a, S>{
 
 pub struct Ptr<'a, C: Component>{
     _guard: ReadGuardRef<'a, <C as Component>::Storage>,
-    reference: &'a <<C as Component>::Storage as Storage<'a,C>>::Target,
+    reference: <<C as Component>::Storage as Storage<'a,C>>::Get,
 }
 
 impl<'a, C: Component> Ptr<'a, C>{
     pub(crate) fn new(_guard: ReadGuardRef<'a, <C as Component>::Storage>, entity: Entity) -> Ptr<'a, C>{
         Ptr{
-            reference: unsafe{ _guard.reference.get_for_ptr(entity.guid()) },
+            reference: unsafe{ _guard.reference.get(entity.guid()) },
             _guard,
         }
     }
 }
 
 impl<'a, C: Component> Deref for Ptr<'a,C>{
-    type Target = <<C as Component>::Storage as Storage<'a,C>>::Target;
-    fn deref(&self) -> &<<C as Component>::Storage as Storage<'a,C>>::Target{
-        self.reference
+    type Target = <<C as Component>::Storage as Storage<'a,C>>::Get;
+    fn deref(&self) -> &<<C as Component>::Storage as Storage<'a,C>>::Get{
+        &self.reference
+    }
+}
+
+impl<'a, C: Component> DerefMut for Ptr<'a,C>{
+    fn deref_mut(&mut self) -> &mut <<C as Component>::Storage as Storage<'a,C>>::Get{
+        &mut self.reference
     }
 }
 
 
 pub struct PtrMut<'a, C: Component>{
     _guard: WriteGuard<'a, <C as Component>::Storage>,
-    reference: &'a mut <<C as Component>::Storage as Storage<'a,C>>::Target,
+    reference: <<C as Component>::Storage as Storage<'a,C>>::GetMut,
 }
 
 impl<'a, C: Component> PtrMut<'a, C>{
     pub(crate) fn new(mut _guard: WriteGuardRef<'a, <C as Component>::Storage>, entity: Entity) -> PtrMut<'a, C>{
         let s: &'a mut <C as Component>::Storage = unsafe{ mem::transmute(_guard._guard.deref_mut()) };
-        let reference = unsafe{ mem::transmute(s.get_for_ptr_mut(entity.guid()))};
+        let reference = unsafe{ s.get_mut(entity.guid()) };
         PtrMut{
             reference,
             _guard: _guard._guard,
@@ -143,15 +149,29 @@ impl<'a, C: Component> PtrMut<'a, C>{
 }
 
 impl<'a, C: Component> Deref for PtrMut<'a,C>{
-    type Target = <<C as Component>::Storage as Storage<'a,C>>::Target;
-    fn deref(&self) -> &<<C as Component>::Storage as Storage<'a,C>>::Target{
-        self.reference
+    type Target = <<C as Component>::Storage as Storage<'a,C>>::GetMut;
+    fn deref(&self) -> &<<C as Component>::Storage as Storage<'a,C>>::GetMut{
+        &self.reference
     }
 }
 
 
 impl<'a, C: Component> DerefMut for PtrMut<'a,C>{
-    fn deref_mut(&mut self) -> &mut <<C as Component>::Storage as Storage<'a,C>>::Target{
-        self.reference
+    fn deref_mut(&mut self) -> &mut <<C as Component>::Storage as Storage<'a,C>>::GetMut{
+        &mut self.reference
+    }
+}
+
+impl<'a, C: Component> Iterator for Ptr<'a, C> where <<C as Component>::Storage as Storage<'a,C>>::Get: Iterator{
+    type Item = <<<C as Component>::Storage as Storage<'a,C>>::Get as Iterator>::Item;
+    fn next(&mut self) -> Option<Self::Item>{
+        self.reference.next()
+    }
+}
+
+impl<'a, C: Component> Iterator for PtrMut<'a, C> where <<C as Component>::Storage as Storage<'a,C>>::GetMut: Iterator{
+    type Item = <<<C as Component>::Storage as Storage<'a,C>>::GetMut as Iterator>::Item;
+    fn next(&mut self) -> Option<Self::Item>{
+        self.reference.next()
     }
 }

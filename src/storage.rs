@@ -13,7 +13,6 @@ use ::IndexGuard;
 use ::Entity;
 
 pub trait Storage<'a, T>{
-    type Target: ?Sized;
     type Get;
     type GetMut;
     fn new() -> Self;
@@ -22,8 +21,6 @@ pub trait Storage<'a, T>{
     fn remove(&mut self, guid: usize);
     unsafe fn get(&'a self, guid: usize) -> Self::Get;
     unsafe fn get_mut(&'a mut self, guid: usize) -> Self::GetMut;
-    unsafe fn get_for_ptr(&self, guid: usize) -> &Self::Target;
-    unsafe fn get_for_ptr_mut(&mut self, guid: usize) -> &mut Self::Target;
 }
 
 pub trait IntoIter{

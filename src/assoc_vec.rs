@@ -14,7 +14,6 @@ pub struct AssocVec<T>{
 }
 
 impl<'a, T: 'a> Storage<'a, T> for AssocVec<T>{
-    type Target = T;
     type Get = &'a T;
     type GetMut = &'a mut T;
 
@@ -121,14 +120,6 @@ impl<'a, T: 'a> Storage<'a, T> for AssocVec<T>{
         *self.last_range.get() = if *self.last_returned.get() < pos { pos - *self.last_returned.get() + 1 } else { pos };
         *self.last_returned.get() = pos;
         &mut self.storage.get_unchecked_mut(pos).1
-    }
-
-    unsafe fn get_for_ptr(&self, guid: usize) -> &Self::Target{
-        self.get(guid)
-    }
-
-    unsafe fn get_for_ptr_mut(&mut self, guid: usize) -> &mut Self::Target{
-        self.get_mut(guid)
     }
 }
 

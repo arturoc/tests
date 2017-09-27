@@ -14,7 +14,6 @@ pub struct HashMapStorage<T>{
 }
 
 impl<'a, T: 'a> Storage<'a, T> for HashMapStorage<T>{
-    type Target = T;
     type Get = &'a T;
     type GetMut = &'a mut T;
 
@@ -44,14 +43,6 @@ impl<'a, T: 'a> Storage<'a, T> for HashMapStorage<T>{
 
     unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
         self.storage.get_mut(&guid).unwrap()
-    }
-
-    unsafe fn get_for_ptr(&self, guid: usize) -> & Self::Target{
-        self.get(guid)
-    }
-
-    unsafe fn get_for_ptr_mut(& mut self, guid: usize) -> & mut Self::Target{
-        self.get_mut(guid)
     }
 }
 

@@ -13,7 +13,6 @@ pub struct OneToNForest<T>{
 }
 
 impl<'a, T: 'a> Storage<'a, T> for OneToNForest<T>{
-    type Target = T;
     type Get = RootsIter<'a, T>;
     type GetMut = RootsIterMut<'a, T>;
 
@@ -54,14 +53,6 @@ impl<'a, T: 'a> Storage<'a, T> for OneToNForest<T>{
             iter: self.entities_roots.get(guid).iter(),
             arena: &mut self.arena
         }
-    }
-
-    unsafe fn get_for_ptr(&self, guid: usize) -> &Self::Target{
-        &self.arena[*self.entities_roots.get(guid).get_unchecked(0)]
-    }
-
-    unsafe fn get_for_ptr_mut(&mut self, guid: usize) -> &mut Self::Target{
-        &mut self.arena[*self.entities_roots.get(guid).get_unchecked(0)]
     }
 }
 
