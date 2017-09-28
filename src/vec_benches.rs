@@ -23,7 +23,6 @@ pub struct Positions{
 
 impl<'a> ::Component<'a> for Positions{
     type Storage = ::DenseVec<Positions>;
-    type Key = Positions;
     fn type_name() -> &'static str{
         "Positions"
     }
@@ -41,7 +40,6 @@ pub struct Velocities{
 
 impl<'a> ::Component<'a> for Velocities{
     type Storage = ::DenseVec<Velocities>;
-    type Key = Velocities;
     fn type_name() -> &'static str{
         "Velocities"
     }

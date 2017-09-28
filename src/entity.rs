@@ -207,6 +207,14 @@ impl<'a> Entities<'a>{
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         PtrMut::new(WriteGuardRef::new(WriteGuard::Sync(storage)), entity)
     }
+
+    // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept
+    // for the lifetime of the reference
+    // pub fn get<S: UnorderedData<'a> + 'a>(&self, entity: &Entity) -> <S as UnorderedData<'a>>::ComponentsRef
+    //     where <S as UnorderedData<'a>>::Storage: StorageRef<'a, <S as UnorderedData<'a>>::ComponentsRef>
+    // {
+    //     S::storage(self.world).get(entity.guid())
+    // }
 }
 
 
@@ -238,4 +246,12 @@ impl<'a> EntitiesThreadLocal<'a>{
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         PtrMut::new(storage, entity)
     }
+
+    // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept
+    // for the lifetime of the reference
+    // pub fn get<S: UnorderedData<'a> + 'a>(&self, entity: &Entity) -> <S as UnorderedData<'a>>::ComponentsRef
+    //     where <S as UnorderedData<'a>>::Storage: StorageRef<'a, <S as UnorderedData<'a>>::ComponentsRef>
+    // {
+    //     S::storage(self.world).get(entity.guid())
+    // }
 }
