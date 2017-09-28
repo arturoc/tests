@@ -101,7 +101,9 @@ fn bench_update(b: &mut Bencher) {
         }
 
         for pos in entities.iter_for::<::Read<Position>>(){
-            let _ = pos;
+            for pos in pos{
+                let _ = pos;
+            }
         }
     });
 }
