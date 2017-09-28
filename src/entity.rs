@@ -196,16 +196,16 @@ impl<'a> Entities<'a>{
         S::into_iter(self.world)
     }
 
-    pub fn component_for<C: ::ComponentSync>(&self, entity: Entity) -> Ptr<'a,C> {
+    pub fn component_for<C: ::ComponentSync>(&self, entity: &Entity) -> Ptr<'a,C> {
         let storage = self.world.storage::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        Ptr::new(ReadGuardRef::new(ReadGuard::Sync(storage)), entity)
+        Ptr::new(ReadGuardRef::new(ReadGuard::Sync(storage)), *entity)
     }
 
-    pub fn component_for_mut<C: ::ComponentSync>(&self, entity: Entity) -> PtrMut<'a,C> {
+    pub fn component_for_mut<C: ::ComponentSync>(&self, entity: &Entity) -> PtrMut<'a,C> {
         let storage = self.world.storage_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        PtrMut::new(WriteGuardRef::new(WriteGuard::Sync(storage)), entity)
+        PtrMut::new(WriteGuardRef::new(WriteGuard::Sync(storage)), *entity)
     }
 
     // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept
@@ -235,16 +235,16 @@ impl<'a> EntitiesThreadLocal<'a>{
         S::into_iter(self.world)
     }
 
-    pub fn component_for<C: ::ComponentSync>(&self, entity: Entity) -> Ptr<'a,C> {
+    pub fn component_for<C: ::ComponentSync>(&self, entity: &Entity) -> Ptr<'a,C> {
         let storage = self.world.storage_thread_local::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        Ptr::new(storage, entity)
+        Ptr::new(storage, *entity)
     }
 
-    pub fn component_for_mut<C: ::ComponentSync>(&self, entity: Entity) -> PtrMut<'a,C> {
+    pub fn component_for_mut<C: ::ComponentSync>(&self, entity: &Entity) -> PtrMut<'a,C> {
         let storage = self.world.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        PtrMut::new(storage, entity)
+        PtrMut::new(storage, *entity)
     }
 
     // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept

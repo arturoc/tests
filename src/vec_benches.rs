@@ -21,7 +21,7 @@ pub struct Positions{
     p: Vec<Position>
 }
 
-impl<'a> ::Component<'a> for Positions{
+impl ::Component for Positions{
     type Storage = ::DenseVec<Positions>;
     fn type_name() -> &'static str{
         "Positions"
@@ -38,7 +38,7 @@ pub struct Velocities{
     p: Vec<Velocity>
 }
 
-impl<'a> ::Component<'a> for Velocities{
+impl ::Component for Velocities{
     type Storage = ::DenseVec<Velocities>;
     fn type_name() -> &'static str{
         "Velocities"
@@ -60,7 +60,7 @@ impl<'a> ::Component<'a> for Velocities{
 // }
 
 // Build
-fn build<'a>() -> ::World<'a> {
+fn build() -> ::World {
     let mut world = ::World::new();
 
     world.register_thread_local::<Positions>();

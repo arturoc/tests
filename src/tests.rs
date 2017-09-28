@@ -260,13 +260,13 @@ fn hierarchical_insert_read() {
         .add(Pos{x: 2., y: 2.})
         .build();
     let e3 = world.create_entity()
-        .add_child(e1, Pos{x: 3., y: 3.})
+        .add_child(&e1, Pos{x: 3., y: 3.})
         .build();
     let _e4 = world.create_entity()
-        .add_child(e2, Pos{x: 4., y: 4.})
+        .add_child(&e2, Pos{x: 4., y: 4.})
         .build();
     let _e5 = world.create_entity()
-        .add_child(e3, Pos{x: 5., y: 5.})
+        .add_child(&e3, Pos{x: 5., y: 5.})
         .build();
 
     let entities = world.entities();
@@ -329,16 +329,16 @@ fn hierarchical_insert_read_write() {
         .add(GlobalPos{x: 2., y: 2.})
         .build();
     let e3 = world.create_entity()
-        .add_child(e1, Pos{x: 3., y: 3.})
-        .add_child(e1, GlobalPos{x: 3., y: 3.})
+        .add_child(&e1, Pos{x: 3., y: 3.})
+        .add_child(&e1, GlobalPos{x: 3., y: 3.})
         .build();
     let _e4 = world.create_entity()
-        .add_child(e2, Pos{x: 4., y: 4.})
-        .add_child(e2, GlobalPos{x: 4., y: 4.})
+        .add_child(&e2, Pos{x: 4., y: 4.})
+        .add_child(&e2, GlobalPos{x: 4., y: 4.})
         .build();
     let _e5 = world.create_entity()
-        .add_child(e3, Pos{x: 5., y: 5.})
-        .add_child(e3, GlobalPos{x: 5., y: 5.})
+        .add_child(&e3, Pos{x: 5., y: 5.})
+        .add_child(&e3, GlobalPos{x: 5., y: 5.})
         .build();
 
     let entities = world.entities();
@@ -427,16 +427,16 @@ fn read_write_and_parent() {
         .add(GlobalPos{x: 2., y: 2.})
         .build();
     let e3 = world.create_entity()
-        .add_child(e1, Pos{x: 3., y: 3.})
-        .add_child(e1, GlobalPos{x: 3., y: 3.})
+        .add_child(&e1, Pos{x: 3., y: 3.})
+        .add_child(&e1, GlobalPos{x: 3., y: 3.})
         .build();
     let _e4 = world.create_entity()
-        .add_child(e2, Pos{x: 4., y: 4.})
-        .add_child(e2, GlobalPos{x: 4., y: 4.})
+        .add_child(&e2, Pos{x: 4., y: 4.})
+        .add_child(&e2, GlobalPos{x: 4., y: 4.})
         .build();
     let _e5 = world.create_entity()
-        .add_child(e3, Pos{x: 5., y: 5.})
-        .add_child(e3, GlobalPos{x: 5., y: 5.})
+        .add_child(&e3, Pos{x: 5., y: 5.})
+        .add_child(&e3, GlobalPos{x: 5., y: 5.})
         .build();
 
     let entities = world.entities();
@@ -780,7 +780,7 @@ fn insert_read_one_to_n() {
     let entities = world.entities();
     assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
 
-    let mut iter = entities.iter_for::<::Read<Pos>>();
+    let iter = entities.iter_for::<::Read<Pos>>();
     for poss in iter{
         assert_eq!(poss[0], Pos{x: poss.len() as f32, y: poss.len() as f32});
     }
@@ -820,7 +820,7 @@ fn insert_read_write_one_to_n() {
     assert_eq!(entities.iter_for::<::Read<Pos>>().count(), 3);
 
 
-    let mut iter = entities.iter_for::<::Write<Pos>>();
+    let iter = entities.iter_for::<::Write<Pos>>();
     for poss in iter{
         for pos in poss{
             pos.x += 1.;
@@ -829,7 +829,7 @@ fn insert_read_write_one_to_n() {
     }
 
 
-    let mut iter = entities.iter_for::<::Read<Pos>>();
+    let iter = entities.iter_for::<::Read<Pos>>();
     for poss in iter{
         assert_eq!(poss[0], Pos{x: poss.len() as f32 + 1., y: poss.len() as f32 + 1.});
     }

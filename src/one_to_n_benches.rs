@@ -94,8 +94,10 @@ fn bench_update(b: &mut Bencher) {
         let entities = world.entities_thread_local();
         // world.run_once();
         for (pos, vel) in entities.iter_for::<(::Write<Position>, ::Read<Velocity>)>(){
-            pos.x += vel.dx;
-            pos.y += vel.dy;
+            for (pos,vel) in pos.iter_mut().zip(vel){
+                pos.x += vel.dx;
+                pos.y += vel.dy;
+            }
         }
 
         for pos in entities.iter_for::<::Read<Position>>(){
