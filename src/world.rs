@@ -402,7 +402,8 @@ impl World{
     }
 
     pub(crate) fn components_mask<C: ::Component>(&self) -> usize{
-        self.components_mask_index[&TypeId::of::<C>()]
+        *self.components_mask_index.get(&TypeId::of::<C>())
+            .expect(&format!("Trying to use component {} before registering", C::type_name()))
     }
 
     pub(crate) fn entities_for_mask(&self, mask: usize) -> IndexGuard{
