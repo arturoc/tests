@@ -235,13 +235,13 @@ impl<'a> EntitiesThreadLocal<'a>{
         S::into_iter(self.world)
     }
 
-    pub fn component_for<C: ::ComponentSync>(&self, entity: &Entity) -> Ptr<'a,C> {
+    pub fn component_for<C: ::Component>(&self, entity: &Entity) -> Ptr<'a,C> {
         let storage = self.world.storage_thread_local::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         Ptr::new(storage, *entity)
     }
 
-    pub fn component_for_mut<C: ::ComponentSync>(&self, entity: &Entity) -> PtrMut<'a,C> {
+    pub fn component_for_mut<C: ::Component>(&self, entity: &Entity) -> PtrMut<'a,C> {
         let storage = self.world.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         PtrMut::new(storage, *entity)
