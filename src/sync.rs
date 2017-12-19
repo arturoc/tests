@@ -175,3 +175,76 @@ impl<'a, C: Component> Iterator for PtrMut<'a, C> where <<C as Component>::Stora
         self.reference.next()
     }
 }
+
+
+use idtree;
+use ::HierarchicalStorage;
+
+pub struct NodePtr<'a, C: Component> where <C as Component>::Storage: ::HierarchicalStorage<'a, C>{
+    _guard: ReadGuardRef<'a, <C as Component>::Storage>,
+    reference: idtree::NodeRef<'a, C>,
+}
+
+impl<'a, C: Component> NodePtr<'a, C>
+    where C: Component,
+        <C as Component>::Storage: ::HierarchicalStorage<'a, C>
+{
+    pub(crate) fn new(_guard: ReadGuardRef<'a, <C as Component>::Storage>, entity: Entity) -> NodePtr<'a, C>
+    {
+        NodePtr{
+            reference: unsafe{ _guard.reference.get_node(entity.guid()) },
+            _guard,
+        }
+    }
+}
+
+impl<'a, C: Component> Deref for NodePtr<'a,C>
+    where <C as Component>::Storage: ::HierarchicalStorage<'a, C>
+{
+    type Target = idtree::NodeRef<'a, C>;
+    fn deref(&self) -> &idtree::NodeRef<'a, C>{
+        &self.reference
+    }
+}
+
+pub struct NodePtrMut<'a, C: Component> where <C as Component>::Storage: ::HierarchicalStorage<'a, C>{
+    _guard: WriteGuardRef<'a, <C as Component>::Storage>,
+    reference: idtree::NodeRefMut<'a, C>,
+}
+
+impl<'a, C: Component> NodePtrMut<'a, C>
+    where C: Component,
+        <C as Component>::Storage: ::HierarchicalStorage<'a, C>
+{
+    pub(crate) fn new(mut _guard: WriteGuardRef<'a, <C as Component>::Storage>, entity: Entity) -> NodePtrMut<'a, C>
+    {
+        let s: &'a mut <C as Component>::Storage = unsafe{ mem::transmute(_guard._guard.deref_mut()) };
+        let reference = unsafe{ s.get_node_mut(entity.guid()) };
+        NodePtrMut{
+            reference,
+            _guard,
+        }
+    }
+
+    //TODO get rid of this, perhaps add descendants to entities?
+    pub unsafe fn into_node(self) -> idtree::NodeRefMut<'a, C>{
+        self.reference
+    }
+}
+
+impl<'a, C: Component> Deref for NodePtrMut<'a,C>
+    where <C as Component>::Storage: ::HierarchicalStorage<'a, C>
+{
+    type Target = idtree::NodeRefMut<'a, C>;
+    fn deref(&self) -> &idtree::NodeRefMut<'a, C>{
+        &self.reference
+    }
+}
+
+impl<'a, C: Component> DerefMut for NodePtrMut<'a,C>
+    where <C as Component>::Storage: ::HierarchicalStorage<'a, C>
+{
+    fn deref_mut(&mut self) -> &mut idtree::NodeRefMut<'a, C>{
+        &mut self.reference
+    }
+}

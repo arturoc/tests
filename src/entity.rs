@@ -12,7 +12,7 @@ use ::HierarchicalOneToNStorage;
 use component::{Component, ComponentSync, ComponentThreadLocal,
     OneToNComponentSync, OneToNComponentThreadLocal,
     HierarchicalOneToNComponent, HierarchicalOneToNComponentSync, HierarchicalOneToNComponentThreadLocal};
-use sync::{ReadGuardRef, ReadGuard, WriteGuardRef, WriteGuard, Ptr, PtrMut};
+use sync::{ReadGuardRef, ReadGuard, WriteGuardRef, WriteGuard, Ptr, PtrMut, NodePtr, NodePtrMut};
 
 #[derive(Clone,Copy,Eq,PartialEq,Debug)]
 pub struct Entity {
@@ -42,7 +42,7 @@ impl<'a> EntityBuilder<'a>{
         }
     }
 
-    pub fn build(&mut self) -> Entity{
+    pub fn build(self) -> Entity{
         let entity = Entity{
             guid: self.guid,
             components_mask: self.components_mask,
@@ -51,7 +51,7 @@ impl<'a> EntityBuilder<'a>{
         entity
     }
 
-    pub fn add<C: ComponentSync + 'a>(&mut self, component: C) -> &mut Self {
+    pub fn add<C: ComponentSync + 'a>(mut self, component: C) -> Self {
         {
             let storage = self.world.storage_mut::<C>();
             if let Some(mut storage) = storage{
@@ -64,7 +64,7 @@ impl<'a> EntityBuilder<'a>{
         self
     }
 
-    pub fn add_thread_local<C: ComponentThreadLocal>(&mut self, component: C) -> &mut Self {
+    pub fn add_thread_local<C: ComponentThreadLocal>(mut self, component: C) -> Self {
         {
             let storage = self.world.storage_thread_local_mut::<C>();
             if let Some(mut storage) = storage{
@@ -77,7 +77,7 @@ impl<'a> EntityBuilder<'a>{
         self
     }
 
-    pub fn add_child<C: ComponentSync>(&mut self, parent: &Entity, component: C) -> &mut Self
+    pub fn add_child<C: ComponentSync>(mut self, parent: &Entity, component: C) -> Self
         where <C as Component>::Storage: HierarchicalStorage<'a,C>{
     {
             let storage = self.world.storage_mut::<C>();
@@ -91,7 +91,7 @@ impl<'a> EntityBuilder<'a>{
         self
     }
 
-    pub fn add_child_thread_local<C: ComponentThreadLocal>(&mut self, parent: Entity, component: C) -> &mut Self
+    pub fn add_child_thread_local<C: ComponentThreadLocal>(mut self, parent: Entity, component: C) -> Self
         where <C as Component>::Storage: HierarchicalStorage<'a,C>{
     {
             let storage = self.world.storage_thread_local_mut::<C>();
@@ -105,7 +105,7 @@ impl<'a> EntityBuilder<'a>{
         self
     }
 
-    pub fn add_slice<C: OneToNComponentSync + Clone>(&mut self, component: &[C]) -> &mut Self{
+    pub fn add_slice<C: OneToNComponentSync + Clone>(mut self, component: &[C]) -> Self{
         {
             let storage = self.world.storage_mut::<C>();
             if let Some(mut storage) = storage{
@@ -118,7 +118,7 @@ impl<'a> EntityBuilder<'a>{
         self
     }
 
-    pub fn add_slice_thread_local<C: OneToNComponentThreadLocal + Clone>(&mut self, component: &[C]) -> &mut Self{
+    pub fn add_slice_thread_local<C: OneToNComponentThreadLocal + Clone>(mut self, component: &[C]) -> Self{
         {
             let storage = self.world.storage_thread_local_mut::<C>();
             if let Some(mut storage) = storage{
@@ -208,6 +208,22 @@ impl<'a> Entities<'a>{
         PtrMut::new(WriteGuardRef::new(WriteGuard::Sync(storage)), *entity)
     }
 
+    pub fn tree_node_for<C: ::Component>(&self, entity: &Entity) -> NodePtr<'a, C>
+        where <C as ::Component>::Storage: ::HierarchicalStorage<'a, C>
+    {
+        let storage = self.world.storage_thread_local::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        NodePtr::new(storage, *entity)
+    }
+
+    pub fn tree_node_for_mut<C: ::Component>(&self, entity: &Entity) -> NodePtrMut<'a, C>
+        where <C as ::Component>::Storage: ::HierarchicalStorage<'a, C>
+    {
+        let storage = self.world.storage_thread_local_mut::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        NodePtrMut::new(storage, *entity)
+    }
+
     // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept
     // for the lifetime of the reference
     // pub fn get<S: UnorderedData<'a> + 'a>(&self, entity: &Entity) -> <S as UnorderedData<'a>>::ComponentsRef
@@ -245,6 +261,22 @@ impl<'a> EntitiesThreadLocal<'a>{
         let storage = self.world.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         PtrMut::new(storage, *entity)
+    }
+
+    pub fn tree_node_for<C: ::Component>(&self, entity: &Entity) -> NodePtr<'a, C>
+        where <C as ::Component>::Storage: ::HierarchicalStorage<'a, C>
+    {
+        let storage = self.world.storage_thread_local::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        NodePtr::new(storage, *entity)
+    }
+
+    pub fn tree_node_for_mut<C: ::Component>(&self, entity: &Entity) -> NodePtrMut<'a, C>
+        where <C as ::Component>::Storage: ::HierarchicalStorage<'a, C>
+    {
+        let storage = self.world.storage_thread_local_mut::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        NodePtrMut::new(storage, *entity)
     }
 
     // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept

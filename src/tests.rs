@@ -835,6 +835,62 @@ fn insert_read_write_one_to_n() {
     }
 }
 
+#[test]
+fn pointer_to_hierarchy_root(){
+    struct Skeleton{
+        base_bones: Vec<::Entity>
+    }
+    impl ::Component for Skeleton{
+        type Storage = ::DenseVec<Skeleton>;
+        fn type_name() -> &'static str{
+            "Skeleton"
+        }
+    }
+
+    #[derive(Eq, PartialEq, Debug)]
+    struct Bone;
+    impl ::Component for Bone{
+        type Storage = ::Forest<Bone>;
+        fn type_name() -> &'static str{
+            "Bone"
+        }
+    }
+
+    let mut world = ::World::new();
+    world.register::<Bone>();
+    world.register::<Skeleton>();
+
+    let root = world.create_entity()
+        .add(Bone)
+        .build();
+
+    let child1 = world.create_entity()
+        .add_child(&root, Bone)
+        .build();
+
+    let child2 = world.create_entity()
+        .add_child(&child1, Bone)
+        .build();
+
+    let child3 = world.create_entity()
+        .add_child(&child1, Bone)
+        .build();
+
+    let skeleton = world.create_entity()
+        .add(Skeleton{ base_bones: vec![root] })
+        .build();
+
+    for skeleton in world.entities().iter_for::<::Read<Skeleton>>(){
+        assert_eq!(skeleton.base_bones[0].guid(), root.guid());
+        let bones = world.entities().tree_node_for::<Bone>(&skeleton.base_bones[0]);
+        let mut bones = bones.descendants_ref();
+        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&root));
+        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&child1));
+        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&child2));
+        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&child3));
+    }
+}
+
 // #[test]
 // fn insert_read_slice_alloc() {
 //     struct Vertex{
