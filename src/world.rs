@@ -37,6 +37,8 @@ pub struct World{
     next_system_priority: AtomicUsize,
 }
 
+unsafe impl Send for World{}
+
 impl World{
     pub fn new() -> World{
         World{
@@ -97,11 +99,11 @@ impl World{
         EntityBuilder::new(self)
     }
 
-    pub fn entities(&self) -> Entities{
+    pub fn entities<'a>(&'a self) -> Entities<'a>{
         Entities::new(self)
     }
 
-    pub fn entities_thread_local(&self) -> EntitiesThreadLocal{
+    pub fn entities_thread_local<'a>(&'a self) -> EntitiesThreadLocal<'a>{
         EntitiesThreadLocal::new(self)
     }
 
