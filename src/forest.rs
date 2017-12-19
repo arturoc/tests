@@ -47,6 +47,7 @@ impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
         }
         unsafe{ ptr::write(self.index.get_unchecked_mut(guid), node_id.id()) };
         self.roots.push(node_id.id());
+        unsafe{ (*self.ordered_ids.get()).clear() };
     }
 
     fn remove(&mut self, guid: usize){
@@ -142,6 +143,7 @@ impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
             self.index.set_len(guid+1)
         }
         ptr::write(self.index.get_unchecked_mut(guid), node_id.id());
+        unsafe{ (*self.ordered_ids.get()).clear() };
     }
 
     unsafe fn get_node(&self, guid: usize) -> idtree::NodeRef<T>{
@@ -164,7 +166,8 @@ impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
             unsafe{ (*self.ordered_ids.get()).extend(iter_tree
                 .map(|id| self.index.iter().position(|id2| *id2 == id).unwrap()))};
         }
-        unsafe{ &*(*self.ordered_ids.get()) }
+        println!("Created ordered index with {}", unsafe{ (*self.ordered_ids.get()).len() });
+        unsafe{ &(*self.ordered_ids.get()) }
     }
 }
 

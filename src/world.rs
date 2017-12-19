@@ -362,6 +362,7 @@ impl World{
     }
 
     pub(crate) fn push_entity(&mut self, e: ::Entity){
+        self.clear_entities_per_mask_index();
         self.entities.push(e)
     }
 
@@ -420,6 +421,7 @@ impl World{
                 }else{
                     None
                 }).collect::<Vec<_>>();
+            println!("building index with size {}", entities.len());
             unsafe{
                 let _guard = self.entities_index_per_mask_guard.write().unwrap();
                 (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));
@@ -438,9 +440,13 @@ impl World{
         }
     }
 
+    // This uses the same index as the non ordered which is probably not correct?
     pub(crate) fn ordered_entities_for<'a, C: Component>(&self, mask: usize) -> IndexGuard
-        where <C as Component>::Storage: ::HierarchicalStorage<'a,C>{
-        if !self.ordered_entities_index_per_mask.write().unwrap().entry(TypeId::of::<<C as ::Component>::Storage>())
+        where <C as Component>::Storage: ::HierarchicalStorage<'a,C>
+    {
+        if !self.ordered_entities_index_per_mask.write()
+            .unwrap()
+            .entry(TypeId::of::<<C as ::Component>::Storage>())
             .or_insert_with(|| HashMap::new())
             .contains_key(&mask){
             let entities = self.storage::<C>()
@@ -449,11 +455,13 @@ impl World{
                 .into_iter()
                 .map(|i| *i)
                 .filter(|i| self.entities[*i].components_mask & mask == mask)
-                .collect();
+                .collect::<Vec<_>>();
+            println!("world ordered ids cache {}", entities.len());
             unsafe{
                 let _guard = self.entities_index_per_mask_guard.write().unwrap();
                 (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));
             }
+
         }
         let _index_guard = unsafe{
             let _guard = self.entities_index_per_mask_guard.read().unwrap();
@@ -469,8 +477,11 @@ impl World{
     }
 
     pub(crate) fn thread_local_ordered_entities_for<'a, C: Component>(&self, mask: usize) -> IndexGuard
-        where <C as Component>::Storage: ::HierarchicalStorage<'a,C>{
-        if !self.ordered_entities_index_per_mask.write().unwrap().entry(TypeId::of::<<C as ::Component>::Storage>())
+        where <C as Component>::Storage: ::HierarchicalStorage<'a,C>
+    {
+        if !self.ordered_entities_index_per_mask.write()
+            .unwrap()
+            .entry(TypeId::of::<<C as ::Component>::Storage>())
             .or_insert_with(|| HashMap::new())
             .contains_key(&mask){
             let entities = self.storage_thread_local::<C>()

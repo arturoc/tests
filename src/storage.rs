@@ -357,6 +357,7 @@ macro_rules! impl_combined_unordered_iter {
 
             fn into_iter(world: &'a ::World) -> Self::Iter{
                 let ids = world.entities_for_mask(Self::components_mask(world));
+                println!("ids len {}", ids.index.len());
                 $iter{
                     // next: 0,
                     ptr: ids.index.as_ptr(),
@@ -799,6 +800,7 @@ macro_rules! impl_combined_ordered_iter {
 
             fn into_iter(world: &'a ::World) -> Self::Iter{
                 let ids = $uo::ordered_ids(world, Self::components_mask(world));
+                println!("ordered ids len {}", ids.index.len());
                 $iter{
                     // next: 0,
                     ptr: ids.index.as_ptr(),
