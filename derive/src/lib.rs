@@ -164,7 +164,7 @@ fn impl_hierarchical_other_structs(ast: &MacroInput) -> Tokens {
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
     quote! {
         impl #impl_generics ::rinecs::Component for #name #ty_generics #where_clause {
-            type Storage = ::rinecs::TreeStorage<#name>;
+            type Storage = ::rinecs::Forest<#name>;
             fn type_name() -> &'static str{
                 stringify!(#name)
             }
