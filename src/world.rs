@@ -421,7 +421,6 @@ impl World{
                 }else{
                     None
                 }).collect::<Vec<_>>();
-            println!("building index with size {}", entities.len());
             unsafe{
                 let _guard = self.entities_index_per_mask_guard.write().unwrap();
                 (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));
@@ -454,9 +453,8 @@ impl World{
                 .ordered_ids()
                 .into_iter()
                 .map(|i| *i)
-                .filter(|i| self.entities[*i].components_mask & mask == mask)
+                .filter(|i| self.entities[*i].components_mask & mask == mask )
                 .collect::<Vec<_>>();
-            println!("world ordered ids cache {}", entities.len());
             unsafe{
                 let _guard = self.entities_index_per_mask_guard.write().unwrap();
                 (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));

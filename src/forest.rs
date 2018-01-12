@@ -1,16 +1,17 @@
-use std::ptr;
 use std::mem;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use std::cell::UnsafeCell;
 
 use idtree;
+use dense_vec::DenseVec;
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 use storage::{Storage, IntoIter, IntoIterMut, HierarchicalStorage, IntoOrderedIter, IntoOrderedIterMut};
 
 pub struct Forest<T>{
     arena: idtree::Arena<T>,
     roots: Vec<idtree::NodeId>,
-    index: Vec<idtree::NodeId>,
+    index: DenseVec<idtree::NodeId>,
+    reverse_index: DenseVec<usize>,
     ordered_ids: UnsafeCell<Vec<usize>>,
 }
 
@@ -22,7 +23,8 @@ impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
         Forest{
             arena: idtree::Arena::new(),
             roots: Vec::new(),
-            index: Vec::new(),
+            index: DenseVec::new(),
+            reverse_index: DenseVec::new(),
             ordered_ids: UnsafeCell::new(vec![]),
         }
     }
@@ -31,41 +33,40 @@ impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
         Forest{
             arena: idtree::Arena::with_capacity(capacity),
             roots: Vec::with_capacity(capacity),
-            index: Vec::with_capacity(capacity),
+            index: DenseVec::with_capacity(capacity),
+            reverse_index: DenseVec::with_capacity(capacity),
             ordered_ids: UnsafeCell::new(Vec::with_capacity(capacity)),
         }
     }
 
     fn insert(&mut self, guid: usize, t: T){
         let node_id = self.arena.new_node(t);
-        if self.index.capacity() < guid + 1{
-            let diff = guid + 1 - self.index.len();
-            self.index.reserve(diff);
-        }
-        if self.index.len() < guid +1 {
-            unsafe{ self.index.set_len(guid+1) }
-        }
-        unsafe{ ptr::write(self.index.get_unchecked_mut(guid), node_id.id()) };
+        self.index.insert(guid, node_id.id());
+        self.reverse_index.insert(node_id.id().id(), guid);
         self.roots.push(node_id.id());
         unsafe{ (*self.ordered_ids.get()).clear() };
     }
 
     fn remove(&mut self, guid: usize){
-        let id = unsafe{ self.index.get_unchecked(guid) };
-        self.arena.remove(*id);
-        if let Some(pos) = self.roots.iter().position(|i| i == id){
-            self.roots.remove(pos);
+        {
+            let id = unsafe{ self.index.get(guid) };
+            self.arena.remove(*id);
+            if let Some(pos) = self.roots.iter().position(|i| i == id){
+                self.roots.remove(pos);
+            }
+            self.reverse_index.remove(id.id());
         }
+        self.index.remove(guid);
         unsafe{ (*self.ordered_ids.get()).clear() };
     }
 
     unsafe fn get(&'a self, guid: usize) -> &'a T{
-        let node_id = self.index.get_unchecked(guid);
+        let node_id = self.index.get(guid);
         &self.arena[*node_id]
     }
 
     unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
-        let node_id = self.index.get_unchecked(guid);
+        let node_id = self.index.get(guid);
         &mut self.arena[*node_id]
     }
 }
@@ -133,29 +134,24 @@ impl<'a, T> IntoIterMut for RwLockWriteGuard<'a, Forest<T>>{
 
 impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
     unsafe fn insert_child(&mut self, parent_guid: usize, guid: usize, value: T){
-        let parent_id = *self.index.get_unchecked(parent_guid);
+        let parent_id = *self.index.get(parent_guid);
         let node_id = self.arena.get_mut(parent_id).append_new(value);
-        if self.index.capacity() < guid + 1{
-            let diff = guid + 1 - self.index.len();
-            self.index.reserve(diff);
-        }
-        if self.index.len() < guid +1 {
-            self.index.set_len(guid+1)
-        }
-        ptr::write(self.index.get_unchecked_mut(guid), node_id.id());
+        self.index.insert(guid, node_id.id());
+        self.reverse_index.insert(node_id.id().id(), guid);
         unsafe{ (*self.ordered_ids.get()).clear() };
     }
 
     unsafe fn get_node(&self, guid: usize) -> idtree::NodeRef<T>{
-        let node_id = *self.index.get_unchecked(guid);
+        let node_id = *self.index.get(guid);
         self.arena.get(node_id)
     }
 
     unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeRefMut<T>{
-        let node_id = self.index.get_unchecked(guid);
+        let node_id = self.index.get(guid);
         self.arena.get_mut(*node_id)
     }
 
+    //TODO: this is terribly unoptimized
     fn ordered_ids(&self) -> &[usize]{
         if unsafe{(*self.ordered_ids.get()).is_empty()}{
             let iter_tree = ForestHierarchicalIdsIter{
@@ -164,9 +160,10 @@ impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
                 iter: if self.roots.is_empty(){ None } else { Some(self.roots[0].descendants(&self.arena)) }
             };
             unsafe{ (*self.ordered_ids.get()).extend(iter_tree
-                .map(|id| self.index.iter().position(|id2| *id2 == id).unwrap()))};
+                //.map(|id| self.index.iter_ids().find(|&(pos, id2)| *id2 == id).map(|(pos, id)| pos).unwrap())
+                .map(|id| *self.reverse_index.get(id.id()) )
+            )};
         }
-        println!("Created ordered index with {}", unsafe{ (*self.ordered_ids.get()).len() });
         unsafe{ &(*self.ordered_ids.get()) }
     }
 }

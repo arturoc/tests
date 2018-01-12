@@ -32,6 +32,12 @@ pub struct NodeId {
     // generation: usize,
 }
 
+impl NodeId{
+    pub(crate) fn id(self) -> usize{
+        self.index
+    }
+}
+
 #[derive(Clone)]
 pub struct Node<T> {
     // Keep these private (with read-only accessors) so that we can keep them consistent.
