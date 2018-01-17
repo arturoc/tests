@@ -44,6 +44,10 @@ impl<'a, T: 'a> Storage<'a, T> for HashMapStorage<T>{
     unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
         self.storage.get_mut(&guid).unwrap()
     }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.storage.contains_key(&guid)
+    }
 }
 
 pub struct AssocIter<'a, T: 'a>{

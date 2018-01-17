@@ -56,6 +56,11 @@ impl<'a,T: 'a> Storage<'a,T> for VecStorage<T>{
     unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
         self.storage.get_unchecked_mut(guid)
     }
+
+    //FIXME: This is super slow for bigger collections, use binary search to store sorted ids?
+    fn contains(&self, guid: usize) -> bool{
+        self.ids.contains(&guid)
+    }
 }
 
 

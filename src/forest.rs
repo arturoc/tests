@@ -69,6 +69,10 @@ impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
         let node_id = self.index.get(guid);
         &mut self.arena[*node_id]
     }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.reverse_index.contains(guid)
+    }
 }
 
 pub struct Iter<'a, T: 'a>{

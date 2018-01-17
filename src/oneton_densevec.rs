@@ -96,6 +96,10 @@ impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
         // let ptr = self.vec.as_mut_ptr().offset(slice.first_index as isize);
         // slice::from_raw_parts_mut(ptr, slice.len)
     }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.index.contains(guid)
+    }
 }
 
 pub struct OneToNDenseIter<'a, T: 'a>{

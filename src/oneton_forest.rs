@@ -10,6 +10,7 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 pub struct OneToNForest<T>{
     arena: idtree::Arena<T>,
     entities_roots: DenseVec<Vec<idtree::NodeId>>,
+    reverse_index: DenseVec<idtree::NodeId>,
 }
 
 impl<'a, T: 'a> Storage<'a, T> for OneToNForest<T>{
@@ -20,6 +21,7 @@ impl<'a, T: 'a> Storage<'a, T> for OneToNForest<T>{
         OneToNForest{
             arena: idtree::Arena::new(),
             entities_roots: DenseVec::new(),
+            reverse_index: DenseVec::new(),
         }
     }
 
@@ -27,6 +29,7 @@ impl<'a, T: 'a> Storage<'a, T> for OneToNForest<T>{
         OneToNForest{
             arena: idtree::Arena::with_capacity(capacity),
             entities_roots: DenseVec::with_capacity(capacity),
+            reverse_index: DenseVec::with_capacity(capacity),
         }
     }
 
@@ -54,6 +57,10 @@ impl<'a, T: 'a> Storage<'a, T> for OneToNForest<T>{
             arena: &mut self.arena
         }
     }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.reverse_index.contains(guid)
+    }
 }
 
 impl<'a, T: 'a> HierarchicalOneToNStorage<'a,T> for OneToNForest<T>{
@@ -62,6 +69,9 @@ impl<'a, T: 'a> HierarchicalOneToNStorage<'a,T> for OneToNForest<T>{
         self.entities_roots.entry(guid)
             .or_insert_with(|| vec![])
             .push(root.id());
+
+        //TODO: is it enough to insert in the reverse index here? or also with childs
+        self.reverse_index.insert(guid, root.id());
         root
     }
 

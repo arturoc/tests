@@ -67,6 +67,10 @@ impl<'a, T: 'a> Storage<'a, T> for DenseVec<T>{
     unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
         self.storage.get_unchecked_mut(*self.index.get_unchecked(guid))
     }
+
+    fn contains(&self, guid: usize) -> bool{
+        guid < self.index.len() && unsafe{ *self.index.get_unchecked(guid) } < usize::MAX
+    }
 }
 
 pub struct OccupiedEntry<'a, T: 'a>(&'a mut T);
@@ -129,10 +133,6 @@ impl<T> DenseVec<T>{
                 Entry::Occupied(OccupiedEntry(unsafe{ self.storage.get_unchecked_mut(idx) }))
             }
         }
-    }
-
-    pub fn contains(&self, guid: usize) -> bool{
-        guid < self.index.len() && unsafe{ *self.index.get_unchecked(guid) } < usize::MAX
     }
 }
 

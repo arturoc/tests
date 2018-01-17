@@ -3,6 +3,7 @@
 
 extern crate rayon;
 extern crate fnv;
+extern crate boolinator;
 
 use sync::*;
 use storage::*;

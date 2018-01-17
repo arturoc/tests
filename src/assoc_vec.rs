@@ -55,6 +55,10 @@ impl<'a, T: 'a> Storage<'a, T> for AssocVec<T>{
         }
     }
 
+    fn contains(&self, guid: usize) -> bool{
+        self.storage.binary_search_by_key(&guid, |&(id, _)| id).is_ok()
+    }
+
     unsafe fn get(&'a self, guid: usize) -> &'a T{
         // let pos = match self.storage[*self.last_returned.get()..].binary_search_by_key(&guid, |&(id, _)| id){
         //     Ok(pos) => pos,

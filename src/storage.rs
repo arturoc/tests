@@ -21,6 +21,7 @@ pub trait Storage<'a, T>{
     fn remove(&mut self, guid: usize);
     unsafe fn get(&'a self, guid: usize) -> Self::Get;
     unsafe fn get_mut(&'a mut self, guid: usize) -> Self::GetMut;
+    fn contains(&self, guid: usize) -> bool;
 }
 
 pub trait IntoIter{

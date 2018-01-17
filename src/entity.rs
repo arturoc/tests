@@ -13,6 +13,7 @@ use component::{Component, ComponentSync, ComponentThreadLocal,
     OneToNComponentSync, OneToNComponentThreadLocal,
     HierarchicalOneToNComponent, HierarchicalOneToNComponentSync, HierarchicalOneToNComponentThreadLocal};
 use sync::{ReadGuardRef, ReadGuard, WriteGuardRef, WriteGuard, Ptr, PtrMut, NodePtr, NodePtrMut};
+use boolinator::Boolinator;
 
 #[derive(Clone,Copy,Eq,PartialEq,Debug)]
 pub struct Entity {
@@ -196,32 +197,36 @@ impl<'a> Entities<'a>{
         S::into_iter(self.world)
     }
 
-    pub fn component_for<C: ::ComponentSync>(&self, entity: &Entity) -> Ptr<'a,C> {
+    pub fn component_for<C: ::ComponentSync>(&self, entity: &Entity) -> Option<Ptr<'a,C>> {
         let storage = self.world.storage::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        Ptr::new(ReadGuardRef::new(ReadGuard::Sync(storage)), *entity)
+        storage.contains(entity.guid())
+            .as_some_from(|| Ptr::new(ReadGuardRef::new(ReadGuard::Sync(storage)), *entity))
     }
 
-    pub fn component_for_mut<C: ::ComponentSync>(&self, entity: &Entity) -> PtrMut<'a,C> {
+    pub fn component_for_mut<C: ::ComponentSync>(&self, entity: &Entity) -> Option<PtrMut<'a,C>> {
         let storage = self.world.storage_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        PtrMut::new(WriteGuardRef::new(WriteGuard::Sync(storage)), *entity)
+        storage.contains(entity.guid())
+            .as_some_from(|| PtrMut::new(WriteGuardRef::new(WriteGuard::Sync(storage)), *entity))
     }
 
-    pub fn tree_node_for<C: ::Component>(&self, entity: &Entity) -> NodePtr<'a, C>
+    pub fn tree_node_for<C: ::Component>(&self, entity: &Entity) -> Option<NodePtr<'a, C>>
         where <C as ::Component>::Storage: ::HierarchicalStorage<'a, C>
     {
         let storage = self.world.storage_thread_local::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        NodePtr::new(storage, *entity)
+        storage.contains(entity.guid())
+            .as_some_from(|| NodePtr::new(storage, *entity))
     }
 
-    pub fn tree_node_for_mut<C: ::Component>(&self, entity: &Entity) -> NodePtrMut<'a, C>
+    pub fn tree_node_for_mut<C: ::Component>(&self, entity: &Entity) -> Option<NodePtrMut<'a, C>>
         where <C as ::Component>::Storage: ::HierarchicalStorage<'a, C>
     {
         let storage = self.world.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        NodePtrMut::new(storage, *entity)
+        storage.contains(entity.guid())
+            .as_some_from(|| NodePtrMut::new(storage, *entity))
     }
 
     // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept
@@ -251,32 +256,36 @@ impl<'a> EntitiesThreadLocal<'a>{
         S::into_iter(self.world)
     }
 
-    pub fn component_for<C: ::Component>(&self, entity: &Entity) -> Ptr<'a,C> {
+    pub fn component_for<C: ::Component>(&self, entity: &Entity) -> Option<Ptr<'a,C>> {
         let storage = self.world.storage_thread_local::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        Ptr::new(storage, *entity)
+        storage.contains(entity.guid())
+            .as_some_from(|| Ptr::new(storage, *entity))
     }
 
-    pub fn component_for_mut<C: ::Component>(&self, entity: &Entity) -> PtrMut<'a,C> {
+    pub fn component_for_mut<C: ::Component>(&self, entity: &Entity) -> Option<PtrMut<'a,C>> {
         let storage = self.world.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        PtrMut::new(storage, *entity)
+        storage.contains(entity.guid())
+            .as_some_from(|| PtrMut::new(storage, *entity))
     }
 
-    pub fn tree_node_for<C: ::Component>(&self, entity: &Entity) -> NodePtr<'a, C>
+    pub fn tree_node_for<C: ::Component>(&self, entity: &Entity) -> Option<NodePtr<'a, C>>
         where <C as ::Component>::Storage: ::HierarchicalStorage<'a, C>
     {
         let storage = self.world.storage_thread_local::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        NodePtr::new(storage, *entity)
+        storage.contains(entity.guid())
+            .as_some_from(|| NodePtr::new(storage, *entity))
     }
 
-    pub fn tree_node_for_mut<C: ::Component>(&self, entity: &Entity) -> NodePtrMut<'a, C>
+    pub fn tree_node_for_mut<C: ::Component>(&self, entity: &Entity) -> Option<NodePtrMut<'a, C>>
         where <C as ::Component>::Storage: ::HierarchicalStorage<'a, C>
     {
         let storage = self.world.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
-        NodePtrMut::new(storage, *entity)
+        storage.contains(entity.guid())
+            .as_some_from(|| NodePtrMut::new(storage, *entity))
     }
 
     // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept
