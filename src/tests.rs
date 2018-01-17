@@ -882,12 +882,12 @@ fn pointer_to_hierarchy_root(){
 
     for skeleton in world.entities().iter_for::<::Read<Skeleton>>(){
         assert_eq!(skeleton.base_bones[0].guid(), root.guid());
-        let bones = world.entities().tree_node_for::<Bone>(&skeleton.base_bones[0]);
+        let bones = world.entities().tree_node_for::<Bone>(&skeleton.base_bones[0]).unwrap();
         let mut bones = bones.descendants_ref();
-        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&root));
-        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&child1));
-        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&child2));
-        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&child3));
+        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&root).unwrap());
+        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&child1).unwrap());
+        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&child2).unwrap());
+        assert_eq!(**bones.next().unwrap(), **world.entities().component_for::<Bone>(&child3).unwrap());
     }
 }
 
