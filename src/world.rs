@@ -69,12 +69,15 @@ impl World{
         *next_mask_mut *= 2;
         self.components_mask_index.insert(type_id, next_mask);
         self.reverse_components_mask_index.insert(next_mask, type_id);
-        self.remove_components_mask_index.insert(next_mask, Box::new(|world, guid|{
+        self.storages.insert(type_id, storage);
+        self.remove_components_mask_index.insert(next_mask, Box::new(move |world, guid|{
             // let s: &RwLock<<C as ::Component>::Storage> = any.downcast_ref().unwrap();
             // s.write().unwrap().remove(guid)
-            world.storage_mut::<C>().unwrap().remove(guid);
+
+            world.storage_mut::<C>()
+                .expect(&format!("Trying to delete component {} without registering first", C::type_name()))
+                .remove(guid);
         }));
-        self.storages.insert(type_id, storage);
     }
 
     pub fn register_thread_local<C: ComponentThreadLocal>(&mut self) {
@@ -85,13 +88,16 @@ impl World{
         *next_mask_mut *= 2;
         self.components_mask_index.insert(type_id, next_mask);
         self.reverse_components_mask_index.insert(next_mask, type_id);
-        self.remove_components_mask_index.insert(next_mask, Box::new(|world, guid|{
+        self.storages_thread_local.insert(type_id, storage);
+        self.remove_components_mask_index.insert(next_mask, Box::new(move |world, guid|{
             //let s: &RefCell<<C as ::Component>::Storage> = any.downcast_ref().unwrap();
             //s.borrow_mut().remove(guid)
-            world.storage_mut::<C>().unwrap().remove(guid);
+
+            world.storage_thread_local_mut::<C>()
+                .expect(&format!("Trying to delete component {} without registering first", C::type_name()))
+                .remove(guid);
 
         }));
-        self.storages_thread_local.insert(type_id, storage);
     }
 
     pub fn create_entity(&mut self) -> EntityBuilder{
@@ -109,69 +115,44 @@ impl World{
 
     pub fn add_component_to<C: ComponentSync>(&mut self, entity: &Entity, component: C){
         self.clear_entities_per_mask_index();
-        {
-            let storage = self.storage_mut::<C>();
-            if let Some(mut storage) = storage{
-                storage.insert(entity.guid(), component)
-            }else{
-                panic!("Trying to add component of type {} without registering first", C::type_name())
-            }
-        };
+        self.storage_mut::<C>()
+            .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
+            .insert(entity.guid(), component);
         let entity = &mut self.entities[entity.guid()];
         entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()];
     }
 
     pub fn add_component_to_thread_local<C: ComponentThreadLocal>(&mut self, entity: &Entity, component: C){
         self.clear_entities_per_mask_index();
-        {
-            let storage = self.storage_thread_local_mut::<C>();
-            if let Some(mut storage) = storage{
-                storage.insert(entity.guid(), component)
-            }else{
-                panic!("Trying to add component of type {} without registering first", C::type_name())
-            }
-        };
+        self.storage_thread_local_mut::<C>()
+            .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
+            .insert(entity.guid(), component);
         let entity = &mut self.entities[entity.guid()];
         entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()];
     }
 
     pub fn add_slice_component_to<C: OneToNComponentSync>(&mut self, entity: &Entity, component: &[C]){
         self.clear_entities_per_mask_index();
-        {
-            let storage = self.storage_mut::<C>();
-            if let Some(mut storage) = storage{
-                storage.insert_slice(entity.guid(), component)
-            }else{
-                panic!("Trying to add component of type {} without registering first", C::type_name())
-            }
-        };
+        self.storage_mut::<C>()
+            .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
+            .insert_slice(entity.guid(), component);
         let entity = &mut self.entities[entity.guid()];
         entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()];
     }
 
     pub fn add_slice_component_to_thread_local<C: OneToNComponentThreadLocal>(&mut self, entity: &Entity, component: &[C]){
         self.clear_entities_per_mask_index();
-        {
-            let storage = self.storage_thread_local_mut::<C>();
-            if let Some(mut storage) = storage{
-                storage.insert_slice(entity.guid(), component)
-            }else{
-                panic!("Trying to add component of type {} without registering first", C::type_name())
-            }
-        };
+        self.storage_thread_local_mut::<C>()
+            .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
+            .insert_slice(entity.guid(), component);
         let entity = &mut self.entities[entity.guid()];
         entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()];
     }
 
     pub fn remove_component_from<C: ::Component>(&mut self, entity: &::Entity){
-        {
-            let storage = self.storage_mut::<C>();
-            if let Some(mut storage) = storage{
-                storage.remove(entity.guid())
-            }else{
-                panic!("Trying to add component of type {} without registering first", C::type_name())
-            }
-        }
+        self.storage_mut::<C>()
+            .expect(&format!("Trying to remove component of type {} without registering first", C::type_name()))
+            .remove(entity.guid());
         self.entities[entity.guid()].components_mask &= !self.components_mask_index[&TypeId::of::<C>()];
         let mask = self.components_mask::<C>();
         let type_id = self.reverse_components_mask_index[&mask];
