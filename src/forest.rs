@@ -71,7 +71,7 @@ impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
     }
 
     fn contains(&self, guid: usize) -> bool{
-        self.reverse_index.contains(guid)
+        self.index.contains(guid)
     }
 }
 
