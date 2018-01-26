@@ -212,6 +212,13 @@ impl World{
         ::Resources::new(self)
     }
 
+    pub fn remove_resource<T: 'static + Send>(&mut self) -> Option<T> {
+        self.resources.remove(&TypeId::of::<T>()).map(|t| {
+            let t: Box<RefCell<T>> = t.downcast().unwrap();
+            t.into_inner()
+        })
+    }
+
 
     pub fn add_resource_thread_local<T: 'static>(&mut self, resource: T){
         self.resources.insert(TypeId::of::<T>(), Box::new(RefCell::new(resource)) as Box<Any>);
@@ -233,6 +240,13 @@ impl World{
 
     pub fn resources_thread_local(&self) -> ::ResourcesThreadLocal{
         ::ResourcesThreadLocal::new(self)
+    }
+
+    pub fn remove_resource_thread_local<T: 'static>(&mut self) -> Option<T> {
+        self.resources.remove(&TypeId::of::<T>()).map(|t| {
+            let t: Box<RefCell<T>> = t.downcast().unwrap();
+            t.into_inner()
+        })
     }
 
     pub fn add_system<S>(&mut self, system: S) -> &mut World
