@@ -7,6 +7,7 @@ use storage::{Storage, OneToNStorage, IntoIter, IntoIterMut};
 use ::DenseVec;
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 
+#[derive(Clone, Copy)]
 struct Group{
     first_index: usize,
     len: usize,
@@ -72,16 +73,19 @@ impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
     }
 
     fn remove(&mut self, guid: usize){
-        {
-            let group = unsafe{ &self.index.get(guid) };
-            self.vec.drain(group.first_index .. group.first_index + group.len);
-            for i in group.first_index .. group.first_index + group.len{
-                if let Some(i) = self.ids.iter().position(|id| *id == i){
-                    self.ids.remove(i);
-                }
+        let group = unsafe{ *self.index.get(guid) };
+        self.vec.drain(group.first_index .. group.first_index + group.len).count();
+        for i in group.first_index .. group.first_index + group.len{
+            if let Some(i) = self.ids.iter().position(|id| *id == i){
+                self.ids.remove(i);
             }
         }
         self.index.remove(guid);
+        for other_group in self.index.iter_mut() {
+            if other_group.first_index > group.first_index {
+                other_group.first_index -= group.len;
+            }
+        }
     }
 
     unsafe fn get(&'a self, guid: usize) -> &'a [T]{
