@@ -1,4 +1,5 @@
 use std::ops::BitOr;
+use std::usize;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Bitmask{
@@ -28,13 +29,8 @@ impl Bitmask{
 impl BitOr for Bitmask{
     type Output = Bitmask;
     fn bitor(self, rhs: Bitmask) -> Bitmask {
-        let has = self.has().and_then(|has| rhs.has().map(|rhs| has | rhs));
-        let not = self.not().and_then(|has| rhs.not().map(|rhs| has & rhs));
-        match (has, not) {
-            (Some(has), None) => Bitmask::Has(has),
-            (None, Some(not)) => Bitmask::Not(not),
-            (Some(has), Some(not)) => Bitmask::HasNot(has, not),
-            (None, None) => unimplemented!()
-        }
+        let has = self.has().unwrap_or(0) | rhs.has().unwrap_or(0);
+        let not = self.not().unwrap_or(usize::MAX) & rhs.not().unwrap_or(usize::MAX);
+        Bitmask::HasNot(has, not)
     }
 }
