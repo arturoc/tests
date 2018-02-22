@@ -7,7 +7,8 @@ extern crate boolinator;
 
 use sync::*;
 use storage::*;
-pub use storage::{Read, Write, Storage, IntoIter, IntoIterMut,
+pub use storage::{Read, Write, Not, ReadNot,
+    Storage, IntoIter, IntoIterMut,
     ReadEntities,
     ReadHierarchical, WriteHierarchical, HierarchicalStorage,
     IntoOrderedIter, IntoOrderedIterMut, ReadAndParent, WriteAndParent,
@@ -43,6 +44,7 @@ mod oneton_densevec;
 mod oneton_forest;
 mod assoc_vec;
 mod hashmap;
+mod bitmask;
 
 #[cfg(test)]
 mod tests;
