@@ -12,7 +12,7 @@ use ::ComponentThreadLocal;
 use ::World;
 use ::IndexGuard;
 use ::Entity;
-use bitmask::Bitmask;
+use ::Bitmask;
 
 pub trait Storage<'a, T>{
     type Get;
@@ -240,7 +240,7 @@ impl<'a> UnorderedData<'a> for ReadEntities {
     type ComponentsRef = &'a Entity;
     type Storage = &'a [Entity];
     fn components_mask(_world: &'a World) -> Bitmask{
-        Bitmask::has(0)
+        Bitmask::all()
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -342,7 +342,7 @@ impl<'a> UnorderedDataLocal<'a> for ReadEntities {
     type ComponentsRef = &'a Entity;
     type Storage = &'a [Entity];
     fn components_mask(_world: &'a World) -> Bitmask{
-        Bitmask::has(0)
+        Bitmask::all()
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{

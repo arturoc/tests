@@ -170,20 +170,18 @@ fn insert_read_not() {
     let mut world = ::World::new();
     world.register::<Pos>();
     world.register::<Vel>();
-    let e1 = world.create_entity()
+    world.create_entity()
         .add(Pos{x: 1., y: 1.})
         .build();
-    let e2 = world.create_entity()
+    world.create_entity()
         .add(Pos{x: 2., y: 2.})
         .build();
-    let e3 = world.create_entity()
+    world.create_entity()
         .add(Pos{x: 3., y: 3.})
         .add(Vel{x: 3., y: 3.})
         .build();
 
     let entities = world.entities();
-    assert_eq!(world.components_mask::<Pos>(), 1);
-    assert_eq!(world.components_mask::<Vel>(), 2);
     assert_eq!(entities.iter_for::<(::Read<Pos>, ::Not<Vel>)>().count(), 2);
     let mut iter = entities.iter_for::<(::Read<Pos>, ::Not<Vel>)>();
     assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, ())));
@@ -237,22 +235,20 @@ fn insert_readnot() {
     world.register::<Pos>();
     world.register::<Vel>();
     world.register::<Other>();
-    let e1 = world.create_entity()
+    world.create_entity()
         .add(Pos{x: 1., y: 1.})
         .add(Other{x: 1., y: 1.})
         .build();
-    let e2 = world.create_entity()
+    world.create_entity()
         .add(Pos{x: 2., y: 2.})
         .add(Other{x: 2., y: 2.})
         .build();
-    let e3 = world.create_entity()
+    world.create_entity()
         .add(Pos{x: 3., y: 3.})
         .add(Vel{x: 3., y: 3.})
         .build();
 
     let entities = world.entities();
-    assert_eq!(world.components_mask::<Pos>(), 1);
-    assert_eq!(world.components_mask::<Vel>(), 2);
     assert_eq!(entities.iter_for::<(::Read<Other>, ::ReadNot<Pos, Vel>)>().count(), 2);
     let mut iter = entities.iter_for::<(::Read<Other>, ::ReadNot<Pos, Vel>)>();
     assert_eq!(iter.next(), Some((&Other{x: 1., y: 1.}, &Pos{x: 1., y: 1.})));
@@ -998,8 +994,8 @@ fn pointer_to_hierarchy_root(){
         .add_child(&child1, Bone)
         .build();
 
-    let skeleton = world.create_entity()
-        .add(Skeleton{ base_bones: vec![root] })
+    let _skeleton = world.create_entity()
+        .add(Skeleton{ base_bones: vec![root.clone()] })
         .build();
 
     for skeleton in world.entities().iter_for::<::Read<Skeleton>>(){

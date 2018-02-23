@@ -5,8 +5,12 @@ extern crate rayon;
 extern crate fnv;
 extern crate boolinator;
 
+#[cfg(feature = "bigint")]
+extern crate num;
+
 use sync::*;
 use storage::*;
+use bitmask::*;
 pub use storage::{Read, Write, Not, ReadNot,
     Storage, IntoIter, IntoIterMut,
     ReadEntities,
@@ -29,6 +33,7 @@ pub use idtree::{NodeRef, NodeRefMut, NodeId};
 pub use sync::Ptr;
 pub use oneton_forest::OneToNForest;
 
+
 mod sync;
 mod entity;
 mod component;
@@ -44,7 +49,9 @@ mod oneton_densevec;
 mod oneton_forest;
 mod assoc_vec;
 mod hashmap;
+
 mod bitmask;
+
 
 #[cfg(test)]
 mod tests;

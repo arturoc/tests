@@ -14,11 +14,12 @@ use component::{Component, ComponentSync, ComponentThreadLocal,
     HierarchicalOneToNComponent, HierarchicalOneToNComponentSync, HierarchicalOneToNComponentThreadLocal};
 use sync::{ReadGuardRef, ReadGuard, WriteGuardRef, WriteGuard, Ptr, PtrMut, NodePtr, NodePtrMut};
 use boolinator::Boolinator;
+use ::MaskType;
 
-#[derive(Clone,Copy,Eq,PartialEq,Debug)]
+#[derive(Clone,Eq,PartialEq,Debug)]
 pub struct Entity {
     guid: usize,
-    pub(crate) components_mask: usize,
+    pub(crate) components_mask: MaskType,
 }
 
 impl Entity{
@@ -30,7 +31,7 @@ impl Entity{
 pub struct EntityBuilder<'a>{
     world: &'a mut World,
     guid: usize,
-    components_mask: usize,
+    components_mask: MaskType,
 }
 
 impl<'a> EntityBuilder<'a>{
@@ -39,7 +40,7 @@ impl<'a> EntityBuilder<'a>{
         EntityBuilder{
             guid: next_guid,
             world: world,
-            components_mask: 0,
+            components_mask: MaskType::from(0usize),
         }
     }
 
@@ -61,7 +62,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
         self
     }
 
@@ -74,7 +75,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
         self
     }
 
@@ -88,7 +89,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
         self
     }
 
@@ -102,7 +103,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
         self
     }
 
@@ -115,7 +116,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
         self
     }
 
@@ -128,14 +129,14 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
         self
     }
 
     pub fn add_hierarchy<C: HierarchicalOneToNComponentSync>(&mut self) -> HierarchyBuilder<C>{
         let storage = self.world.storage_mut::<C>();
         if let Some(storage) = storage{
-            self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+            self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
             let storage = WriteGuardRef::new(WriteGuard::Sync(storage));
             HierarchyBuilder{
                 entity: self.guid,
@@ -149,7 +150,7 @@ impl<'a> EntityBuilder<'a>{
     pub fn add_hierarchy_thread_local<C: HierarchicalOneToNComponentThreadLocal>(&mut self) -> HierarchyBuilder<C>{
         let storage = self.world.storage_thread_local_mut::<C>();
         if let Some(storage) = storage{
-            self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()];
+            self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
             HierarchyBuilder{
                 entity: self.guid,
                 storage
@@ -201,14 +202,14 @@ impl<'a> Entities<'a>{
         let storage = self.world.storage::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         storage.contains(entity.guid())
-            .as_some_from(|| Ptr::new(ReadGuardRef::new(ReadGuard::Sync(storage)), *entity))
+            .as_some_from(|| Ptr::new(ReadGuardRef::new(ReadGuard::Sync(storage)), entity.clone()))
     }
 
     pub fn component_for_mut<C: ::ComponentSync>(&self, entity: &Entity) -> Option<PtrMut<'a,C>> {
         let storage = self.world.storage_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         storage.contains(entity.guid())
-            .as_some_from(|| PtrMut::new(WriteGuardRef::new(WriteGuard::Sync(storage)), *entity))
+            .as_some_from(|| PtrMut::new(WriteGuardRef::new(WriteGuard::Sync(storage)), entity.clone()))
     }
 
     pub fn tree_node_for<C: ::Component>(&self, entity: &Entity) -> Option<NodePtr<'a, C>>
@@ -217,7 +218,7 @@ impl<'a> Entities<'a>{
         let storage = self.world.storage_thread_local::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         storage.contains(entity.guid())
-            .as_some_from(|| NodePtr::new(storage, *entity))
+            .as_some_from(|| NodePtr::new(storage, entity.clone()))
     }
 
     pub fn tree_node_for_mut<C: ::Component>(&self, entity: &Entity) -> Option<NodePtrMut<'a, C>>
@@ -226,7 +227,7 @@ impl<'a> Entities<'a>{
         let storage = self.world.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         storage.contains(entity.guid())
-            .as_some_from(|| NodePtrMut::new(storage, *entity))
+            .as_some_from(|| NodePtrMut::new(storage, entity.clone()))
     }
 
     // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept
@@ -260,14 +261,14 @@ impl<'a> EntitiesThreadLocal<'a>{
         let storage = self.world.storage_thread_local::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         storage.contains(entity.guid())
-            .as_some_from(|| Ptr::new(storage, *entity))
+            .as_some_from(|| Ptr::new(storage, entity.clone()))
     }
 
     pub fn component_for_mut<C: ::Component>(&self, entity: &Entity) -> Option<PtrMut<'a,C>> {
         let storage = self.world.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         storage.contains(entity.guid())
-            .as_some_from(|| PtrMut::new(storage, *entity))
+            .as_some_from(|| PtrMut::new(storage, entity.clone()))
     }
 
     pub fn tree_node_for<C: ::Component>(&self, entity: &Entity) -> Option<NodePtr<'a, C>>
@@ -276,7 +277,7 @@ impl<'a> EntitiesThreadLocal<'a>{
         let storage = self.world.storage_thread_local::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         storage.contains(entity.guid())
-            .as_some_from(|| NodePtr::new(storage, *entity))
+            .as_some_from(|| NodePtr::new(storage, entity.clone()))
     }
 
     pub fn tree_node_for_mut<C: ::Component>(&self, entity: &Entity) -> Option<NodePtrMut<'a, C>>
@@ -285,7 +286,7 @@ impl<'a> EntitiesThreadLocal<'a>{
         let storage = self.world.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to use non registered type {}", C::type_name()));
         storage.contains(entity.guid())
-            .as_some_from(|| NodePtrMut::new(storage, *entity))
+            .as_some_from(|| NodePtrMut::new(storage, entity.clone()))
     }
 
     // TODO: Is this useful? as it is it's not safe as there's no guard for the storage being kept

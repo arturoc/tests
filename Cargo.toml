@@ -5,8 +5,10 @@ authors = ["arturo castro <arturo@openframeworks.cc>"]
 
 [features]
 unstable=[]
+bigint=["num"]
 
 [dependencies]
 rayon = "*"
 fnv = "*"
 boolinator = "*"
+num = {version = "*", optional = true}
