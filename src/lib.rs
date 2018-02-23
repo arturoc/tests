@@ -11,7 +11,7 @@ extern crate num;
 use sync::*;
 use storage::*;
 use bitmask::*;
-pub use storage::{Read, Write, Not, ReadNot,
+pub use storage::{Read, Write, Not, ReadNot, ReadOr,
     Storage, IntoIter, IntoIterMut,
     ReadEntities,
     ReadHierarchical, WriteHierarchical, HierarchicalStorage,

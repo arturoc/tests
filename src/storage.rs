@@ -5,7 +5,7 @@ use std::mem;
 use std::slice;
 use std::iter;
 
-use sync::{ReadGuardRef, WriteGuardRef};
+use sync::{ReadGuardRef, WriteGuardRef, ReadGuard};
 use ::Component;
 use ::ComponentSync;
 use ::ComponentThreadLocal;
@@ -13,6 +13,7 @@ use ::World;
 use ::IndexGuard;
 use ::Entity;
 use ::Bitmask;
+use boolinator::Boolinator;
 
 pub trait Storage<'a, T>{
     type Get;
@@ -55,6 +56,11 @@ pub struct ReadNot<'a, T: 'a + Component, Not: 'a + Component>{
     _marker2: marker::PhantomData<&'a Not>,
 }
 
+pub struct ReadOr<'a, T: 'a + Component, Or: 'a + Component>{
+    _marker1: marker::PhantomData<&'a T>,
+    _marker2: marker::PhantomData<&'a Or>,
+}
+
 // Sync Read/Write
 pub struct StorageRead<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync>{
     storage: RwLockReadGuard<'a, S>,
@@ -68,6 +74,7 @@ pub struct StorageWrite<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync>{
 
 pub trait StorageRef<'a, T>{
     fn get(&self, guid: usize) -> T;
+    fn contains(&self, guid: usize) -> bool;
 }
 
 impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, <S as Storage<'a,T>>::Get> for StorageRead<'a, S, T>{
@@ -76,6 +83,10 @@ impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, <S as Stor
 
         let storage = unsafe{ mem::transmute::<&S, &S>(&self.storage) };
         unsafe{ storage.get(guid) }
+    }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.storage.contains(guid)
     }
 }
 
@@ -86,6 +97,10 @@ impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, <S as Stor
 
         let storage = unsafe{ mem::transmute::<&mut S, &mut S>(&mut (*self.storage.get())) };
         unsafe{ storage.get_mut(guid) }
+    }
+
+    fn contains(&self, guid: usize) -> bool {
+        unsafe{ (*self.storage.get()).contains(guid) }
     }
 }
 
@@ -167,6 +182,11 @@ impl<'a> StorageRef<'a, ()> for (){
     fn get(&self, _guid: usize) -> (){
         ()
     }
+
+    fn contains(&self, guid: usize) -> bool{
+        //TODO: is this correct? surely will never get called
+        false
+    }
 }
 
 pub struct ReadNotIter<'a,T,S>{
@@ -221,6 +241,95 @@ impl<'a, T: 'a + ComponentSync, Not: Component> UnorderedData<'a> for ReadNot<'a
     }
 }
 
+pub struct ReadOrIter<'a,T1, S1, T2, S2>
+    where S1: ::Storage<'a, T1> + 'a,
+          S2: ::Storage<'a, T2> + 'a,
+{
+    _ids: ::IndexGuard<'a>,
+    ptr: *const usize,
+    end: *const usize,
+    storage: OrStorage<'a, T1, S1, T2, S2>,
+}
+
+
+impl<'a, T1, S1: ::StorageRef<'a, T1> + 'a, T2, S2: ::StorageRef<'a, T2> + 'a> Iterator for ReadOrIter<'a,T1,S1,T2,S2>
+    where S1: ::Storage<'a, T1> + 'a,
+          S2: ::Storage<'a, T2> + 'a,
+{
+    type Item = (Option<<S1 as Storage<'a,T1>>::Get>, Option<<S2 as Storage<'a,T2>>::Get>);
+    fn next(&mut self) -> Option<Self::Item>{
+        unsafe {
+            if self.ptr == self.end {
+                None
+            } else {
+                let guid = *self.ptr;
+                self.ptr = self.ptr.offset(1);
+                Some(self.storage.get(guid))
+            }
+        }
+    }
+}
+
+pub struct OrStorage<'a, T1, S1, T2, S2>
+    where S1: 'a,
+          S2: 'a,
+{
+    _marker1: marker::PhantomData<T1>,
+    storage1: ReadGuardRef<'a, S1>,
+    _marker2: marker::PhantomData<T2>,
+    storage2: ReadGuardRef<'a, S2>,
+}
+
+impl<'a, T1, T2, S1, S2> StorageRef<'a, (Option<<S1 as Storage<'a,T1>>::Get>, Option<<S2 as Storage<'a,T2>>::Get>) > for OrStorage<'a, T1, S1, T2, S2>
+    where S1: ::Storage<'a, T1> + 'a,
+          S2: ::Storage<'a, T2> + 'a,
+{
+    fn get(&self, guid: usize) -> (Option<<S1 as Storage<'a,T1>>::Get>, Option<<S2 as Storage<'a,T2>>::Get>){
+            let storage1 = unsafe{ mem::transmute::<&S1, &S1>(&*self.storage1) };
+            let storage2 = unsafe{ mem::transmute::<&S2, &S2>(&*self.storage2) };
+            let t1 = storage1.contains(guid)
+                .as_some_from(|| unsafe{ storage1.get(guid) });
+            let t2 = (t1.is_none() || storage2.contains(guid))
+                .as_some_from(|| unsafe{ storage2.get(guid) });
+            (t1, t2)
+    }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.storage1.contains(guid) | self.storage2.contains(guid)
+    }
+}
+
+impl<'a, T1: 'a + ComponentSync, T2: 'a + ComponentSync> UnorderedData<'a> for ReadOr<'a,T1,T2> {
+    type Iter = ReadOrIter<'a, T1, <T1 as Component>::Storage,
+                               T2, <T2 as Component>::Storage>;
+    type Components = (Option<T1>, Option<T2>);
+    type ComponentsRef = (Option<<<T1 as Component>::Storage as Storage<'a, T1>>::Get>, Option<<<T2 as Component>::Storage as Storage<'a, T2>>::Get>);
+    type Storage = OrStorage<'a, T1, <T1 as Component>::Storage, T2, <T2 as Component>::Storage>;
+    fn components_mask(world: &'a World) -> Bitmask {
+        Bitmask::or(world.components_mask::<T1>(), world.components_mask::<T2>())
+    }
+
+    fn into_iter(world: &'a ::World) -> Self::Iter {
+        let ids = world.entities_for_mask(<Self as UnorderedData>::components_mask(world));
+        let storage = <Self as UnorderedData>::storage(world);
+        ReadOrIter{
+            ptr: ids.index.as_ptr(),
+            end: unsafe{ ids.index.as_ptr().offset(ids.index.len() as isize) },
+            _ids: ids,
+            storage: storage,
+        }
+    }
+
+    fn storage(world: &'a ::World) -> Self::Storage {
+        OrStorage {
+            storage1: ReadGuardRef::new(ReadGuard::Sync(world.storage::<T1>().unwrap())),
+            _marker1: marker::PhantomData,
+            storage2: ReadGuardRef::new(ReadGuard::Sync(world.storage::<T2>().unwrap())),
+            _marker2: marker::PhantomData,
+        }
+    }
+}
+
 impl<'a> IntoIter for &'a [Entity]{
     type Iter = slice::Iter<'a,Entity>;
     fn into_iter(self) -> Self::Iter{
@@ -231,6 +340,11 @@ impl<'a> IntoIter for &'a [Entity]{
 impl<'a> StorageRef<'a, &'a Entity> for &'a [Entity]{
     fn get(&self, guid: usize) -> &'a Entity{
         unsafe{ self.get_unchecked(guid) }
+    }
+
+    fn contains(&self, guid: usize) -> bool{
+        // TODO: This is slow but will never get called, right?
+        self.iter().find(|e| e.guid() == guid).is_some()
     }
 }
 
@@ -269,6 +383,10 @@ impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, <S 
         let storage = unsafe{ mem::transmute::<&S, &S>(&self.storage) };
         unsafe{ storage.get(guid) }
     }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.storage.contains(guid)
+    }
 }
 
 impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, <S as Storage<'a,T>>::GetMut> for StorageWriteLocal<'a, S, T>{
@@ -276,6 +394,10 @@ impl<'a, S: Storage<'a,T> + 'a, T: 'a + ComponentThreadLocal> StorageRef<'a, <S 
         // unsafe{ mem::transmute::<&mut T, &mut T>((*self.storage.get()).get_mut(guid)) }
         let storage = unsafe{ mem::transmute::<&mut S, &mut S>(&mut (*self.storage.get())) };
         unsafe{ storage.get_mut(guid) }
+    }
+
+    fn contains(&self, guid: usize) -> bool {
+        unsafe{ (*self.storage.get()).contains(guid) }
     }
 }
 
@@ -402,6 +524,37 @@ impl<'a, T: 'a + ComponentSync, Not: Component> UnorderedDataLocal<'a> for ReadN
     }
 }
 
+impl<'a, T1: 'a + ComponentSync, T2: 'a + ComponentSync> UnorderedDataLocal<'a> for ReadOr<'a,T1,T2> {
+    type Iter = ReadOrIter<'a, T1, <T1 as Component>::Storage,
+                               T2, <T2 as Component>::Storage>;
+    type Components = (Option<T1>, Option<T2>);
+    type ComponentsRef = (Option<<<T1 as Component>::Storage as Storage<'a, T1>>::Get>, Option<<<T2 as Component>::Storage as Storage<'a, T2>>::Get>);
+    type Storage = OrStorage<'a, T1, <T1 as Component>::Storage, T2, <T2 as Component>::Storage>;
+    fn components_mask(world: &'a World) -> Bitmask {
+        Bitmask::or(world.components_mask::<T1>(), world.components_mask::<T2>())
+    }
+
+    fn into_iter(world: &'a ::World) -> Self::Iter {
+        let ids = world.entities_for_mask(<Self as UnorderedDataLocal>::components_mask(world));
+        let storage = <Self as UnorderedDataLocal>::storage(world);
+        ReadOrIter{
+            ptr: ids.index.as_ptr(),
+            end: unsafe{ ids.index.as_ptr().offset(ids.index.len() as isize) },
+            _ids: ids,
+            storage: storage,
+        }
+    }
+
+    fn storage(world: &'a ::World) -> Self::Storage {
+        OrStorage {
+            storage1: world.storage_thread_local::<T1>().unwrap(),
+            _marker1: marker::PhantomData,
+            storage2: world.storage_thread_local::<T2>().unwrap(),
+            _marker2: marker::PhantomData,
+        }
+    }
+}
+
 //-------------------------------------------------------------------
 // Combined iterators
 macro_rules! impl_combined_unordered_iter {
@@ -461,6 +614,10 @@ macro_rules! impl_combined_unordered_iter {
         impl<'a, $($t, $s: ::StorageRef<'a, $t>,)*> ::StorageRef<'a, ($($t),*)> for $storage_ref<$($s),*>{
             fn get(&self, guid: usize) -> ($($t),*){
                 ($( self.$s.get(guid) ),*)
+            }
+
+            fn contains(&self, guid: usize) -> bool{
+               ($( self.$s.contains(guid) ) & *)
             }
         }
 
@@ -657,11 +814,19 @@ impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a
     fn get(&self, guid: usize) -> idtree::NodeRef<'a, T>{
         unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(self.storage.get_node(guid)) }
     }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.storage.contains(guid)
+    }
 }
 
 impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeRefMut<'a, T>> for HierarchicalStorageWrite<'a, S, T>{
     fn get(&self, guid: usize) -> idtree::NodeRefMut<'a, T>{
         unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>((*self.storage.get()).get_node_mut(guid)) }
+    }
+
+    fn contains(&self, guid: usize) -> bool {
+        unsafe{ (*self.storage.get()).contains(guid) }
     }
 }
 
@@ -751,11 +916,19 @@ impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a
     fn get(&self, guid: usize) -> idtree::NodeRef<'a, T>{
         unsafe{ mem::transmute::<idtree::NodeRef<T>, idtree::NodeRef<T>>(self.storage.get_node(guid)) }
     }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.storage.contains(guid)
+    }
 }
 
 impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a, idtree::NodeRefMut<'a, T>> for HierarchicalStorageWriteLocal<'a, S, T>{
     fn get(&self, guid: usize) -> idtree::NodeRefMut<'a, T>{
         unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>((*self.storage.get()).get_node_mut(guid)) }
+    }
+
+    fn contains(&self, guid: usize) -> bool {
+        unsafe{ (*self.storage.get()).contains(guid) }
     }
 }
 
@@ -892,6 +1065,10 @@ macro_rules! impl_combined_ordered_iter {
         impl<'a, $to, $so: ::StorageRef<'a, $to>, $($t, $s: ::StorageRef<'a, $t>,)*> ::StorageRef<'a, ($to, $($t),*)> for $storage_ref<$so, $($s),*>{
             fn get(&self, guid: usize) -> ($to, $($t),*){
                 (self.$so.get(guid), $( self.$s.get(guid) ),*)
+            }
+
+            fn contains(&self, guid: usize) -> bool{
+                self.$so.contains(guid) & $( self.$s.contains(guid) )&*
             }
         }
 
@@ -1076,6 +1253,10 @@ impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a
         let parent = node.parent().map(|p| unsafe{ mem::transmute::<&T, &T>(&p) });
         unsafe{ mem::transmute::<(&T, Option<&T>), (&T, Option<&T>)>((&node, parent)) }
     }
+
+    fn contains(&self, guid: usize) -> bool {
+        self.storage.contains(guid)
+    }
 }
 
 pub struct ReadAndParentIter<'a, T: Component>
@@ -1143,6 +1324,10 @@ impl<'a, S: HierarchicalStorage<'a,T> + 'a, T: 'a + ComponentSync> StorageRef<'a
         let mut node = unsafe{ mem::transmute::<idtree::NodeRefMut<T>, idtree::NodeRefMut<T>>((*self.storage.get()).get_node_mut(guid)) };
         let parent = node.parent().map(|p| unsafe{ mem::transmute::<&T, &T>(&p) });
         unsafe{ mem::transmute::<(&mut T, Option<&T>), (&mut T, Option<&T>)>((&mut node, parent)) }
+    }
+
+    fn contains(&self, guid: usize) -> bool {
+        unsafe{ (*self.storage.get()).contains(guid) }
     }
 }
 

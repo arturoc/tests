@@ -256,6 +256,73 @@ fn insert_readnot() {
     assert_eq!(iter.next(), None);
 }
 
+
+#[test]
+fn insert_reador() {
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Pos{
+        x: f32,
+        y: f32,
+    }
+
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Vel{
+        x: f32,
+        y: f32,
+    }
+
+    #[derive(Debug,PartialEq,Copy,Clone)]
+    struct Other{
+        x: f32,
+        y: f32,
+    }
+
+    impl ::Component for Pos{
+        type Storage = ::DenseVec<Pos>;
+        fn type_name() -> &'static str{
+            "Pos"
+        }
+    }
+
+    impl ::Component for Vel{
+        type Storage = ::DenseVec<Vel>;
+        fn type_name() -> &'static str{
+            "Vel"
+        }
+    }
+
+    impl ::Component for Other{
+        type Storage = ::DenseVec<Other>;
+        fn type_name() -> &'static str{
+            "Other"
+        }
+    }
+
+    let mut world = ::World::new();
+    world.register::<Pos>();
+    world.register::<Vel>();
+    world.register::<Other>();
+    world.create_entity()
+        .add(Pos{x: 1., y: 1.})
+        .add(Other{x: 1., y: 1.})
+        .build();
+    world.create_entity()
+        .add(Pos{x: 2., y: 2.})
+        .build();
+    world.create_entity()
+        .add(Pos{x: 3., y: 3.})
+        .add(Vel{x: 3., y: 3.})
+        .build();
+
+    let entities = world.entities();
+    assert_eq!(entities.iter_for::<(::Read<Pos>, ::ReadOr<Vel, Other>)>().count(), 2);
+    let mut iter = entities.iter_for::<(::Read<Pos>, ::ReadOr<Vel, Other>)>();
+    assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, (None, Some(&Other{x: 1., y: 1.})))));
+    assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, (Some(&Vel{x: 3., y: 3.}), None))));
+    assert_eq!(iter.next(), None);
+}
+
+
 #[test]
 fn insert_read_write_parallel() {
     use rayon;
