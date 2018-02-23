@@ -1014,23 +1014,23 @@ macro_rules! impl_node_ref_iterator {
     }
 }
 
-macro_rules! impl_node_mut_iterator {
-    ($name: ident, $next: expr) => {
-        impl<'a, T> Iterator for $name<'a, T> {
-            type Item = NodeRefMut<'a, T>;
+// macro_rules! impl_node_mut_iterator {
+//     ($name: ident, $next: expr) => {
+//         impl<'a, T> Iterator for $name<'a, T> {
+//             type Item = NodeRefMut<'a, T>;
 
-            fn next(&mut self) -> Option<NodeRefMut<'a, T>> {
-                match self.node.take() {
-                    Some(node) => {
-                        self.node = $next(&self.arena[node]);
-                        Some(self.arena.get_mut(node))
-                    }
-                    None => None
-                }
-            }
-        }
-    }
-}
+//             fn next(&mut self) -> Option<NodeRefMut<'a, T>> {
+//                 match self.node.take() {
+//                     Some(node) => {
+//                         self.node = $next(&self.arena[node]);
+//                         Some(self.arena.get_mut(node))
+//                     }
+//                     None => None
+//                 }
+//             }
+//         }
+//     }
+// }
 
 /// An iterator of references to the ancestors a given node.
 pub struct Ancestors<'a, T: 'a> {

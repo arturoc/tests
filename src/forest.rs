@@ -142,7 +142,7 @@ impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
         let node_id = self.arena.get_mut(parent_id).append_new(value);
         self.index.insert(guid, node_id.id());
         self.reverse_index.insert(node_id.id().id(), guid);
-        unsafe{ (*self.ordered_ids.get()).clear() };
+        (*self.ordered_ids.get()).clear();
     }
 
     unsafe fn get_node(&self, guid: usize) -> idtree::NodeRef<T>{
