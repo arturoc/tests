@@ -107,7 +107,7 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Read<'a,T>
     type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::Get;
     type Storage = StorageRead<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -130,7 +130,7 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Write<'a,T>
     type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::GetMut;
     type Storage = StorageWrite<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -151,7 +151,7 @@ impl<'a, T: 'a + ComponentSync> UnorderedData<'a> for Not<'a,T> {
     type ComponentsRef = ();
     type Storage = ();
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Not(world.components_mask::<T>())
+        Bitmask::not(world.components_mask::<T>())
     }
 
     fn into_iter(_: &'a ::World) -> Self::Iter{
@@ -199,7 +199,7 @@ impl<'a, T: 'a + ComponentSync, Not: Component> UnorderedData<'a> for ReadNot<'a
     type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::Get;
     type Storage = StorageRead<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask {
-        Bitmask::HasNot(world.components_mask::<T>(), world.components_mask::<Not>())
+        Bitmask::has_not(world.components_mask::<T>(), world.components_mask::<Not>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter {
@@ -240,7 +240,7 @@ impl<'a> UnorderedData<'a> for ReadEntities {
     type ComponentsRef = &'a Entity;
     type Storage = &'a [Entity];
     fn components_mask(_world: &'a World) -> Bitmask{
-        Bitmask::Has(0)
+        Bitmask::has(0)
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -297,7 +297,7 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Read<'a,T>
     type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::Get;
     type Storage = StorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -320,7 +320,7 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Write<'a,T>
     type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::GetMut;
     type Storage = StorageWriteLocal<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -342,7 +342,7 @@ impl<'a> UnorderedDataLocal<'a> for ReadEntities {
     type ComponentsRef = &'a Entity;
     type Storage = &'a [Entity];
     fn components_mask(_world: &'a World) -> Bitmask{
-        Bitmask::Has(0)
+        Bitmask::has(0)
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -361,7 +361,7 @@ impl<'a, T: 'a + ComponentSync> UnorderedDataLocal<'a> for Not<'a,T> {
     type ComponentsRef = ();
     type Storage = ();
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Not(world.components_mask::<T>())
+        Bitmask::not(world.components_mask::<T>())
     }
 
     fn into_iter(_: &'a ::World) -> Self::Iter{
@@ -380,7 +380,7 @@ impl<'a, T: 'a + ComponentSync, Not: Component> UnorderedDataLocal<'a> for ReadN
     type ComponentsRef = <<T as Component>::Storage as Storage<'a, T>>::Get;
     type Storage = StorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask {
-        Bitmask::HasNot(world.components_mask::<T>(), world.components_mask::<Not>())
+        Bitmask::has_not(world.components_mask::<T>(), world.components_mask::<Not>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter {
@@ -687,7 +687,7 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for ReadHierarchical<'a,T>
     type ComponentsRef = idtree::NodeRef<'a, T>;
     type Storage = HierarchicalStorageRead<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -716,7 +716,7 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteHierarchical<'a,T>
     type ComponentsRef = idtree::NodeRefMut<'a, T>;
     type Storage = HierarchicalStorageWrite<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -781,7 +781,7 @@ impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for ReadHierarchical<'a,T>
     type ComponentsRef = idtree::NodeRef<'a, T>;
     type Storage = HierarchicalStorageReadLocal<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -810,7 +810,7 @@ impl<'a, T: 'a + ComponentSync> OrderedDataLocal<'a> for WriteHierarchical<'a,T>
     type ComponentsRef = idtree::NodeRefMut<'a, T>;
     type Storage = HierarchicalStorageWriteLocal<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -1110,7 +1110,7 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for ReadAndParent<'a,T>
     type ComponentsRef = (&'a T, Option<&'a T>);
     type Storage = ParentStorageRead<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
@@ -1177,7 +1177,7 @@ impl<'a, T: 'a + ComponentSync> OrderedData<'a> for WriteAndParent<'a,T>
     type ComponentsRef = (&'a mut T, Option<&'a T>);
     type Storage = ParentStorageWrite<'a, <T as Component>::Storage, Self::Components>;
     fn components_mask(world: &'a World) -> Bitmask{
-        Bitmask::Has(world.components_mask::<T>())
+        Bitmask::has(world.components_mask::<T>())
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{

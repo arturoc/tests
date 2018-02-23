@@ -417,29 +417,13 @@ impl World{
             (*self.entities_index_per_mask.get()).contains_key(&mask)
         };
         if !contains_key {
-            let entities = match mask{
-                Bitmask::Has(mask) => self.entities.iter().filter_map(|e| {
-                    if e.components_mask & mask == mask {
+            let entities = self.entities.iter().filter_map(|e| {
+                    if mask.check(e.components_mask) {
                         Some(e.guid())
                     }else{
                         None
                     }
-                }).collect::<Vec<_>>(),
-                Bitmask::Not(mask) => self.entities.iter().filter_map(|e| {
-                    if e.components_mask & mask != mask {
-                        Some(e.guid())
-                    }else{
-                        None
-                    }
-                }).collect::<Vec<_>>(),
-                Bitmask::HasNot(mask, not) => self.entities.iter().filter_map(|e| {
-                    if e.components_mask & mask == mask && e.components_mask & not != not {
-                        Some(e.guid())
-                    }else{
-                        None
-                    }
-                }).collect::<Vec<_>>(),
-            };
+                }).collect::<Vec<_>>();
             unsafe{
                 let _guard = self.entities_index_per_mask_guard.write().unwrap();
                 (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));
@@ -467,29 +451,13 @@ impl World{
             .entry(TypeId::of::<<C as ::Component>::Storage>())
             .or_insert_with(|| HashMap::new())
             .contains_key(&mask){
-            let entities = match mask{
-                Bitmask::Has(mask) => self.storage::<C>()
+            let entities = self.storage::<C>()
                     .expect(&format!("Trying to use non registered type {}", C::type_name()))
                     .ordered_ids()
                     .into_iter()
                     .map(|i| *i)
-                    .filter(|i| self.entities[*i].components_mask & mask == mask )
-                    .collect::<Vec<_>>(),
-                Bitmask::Not(mask) => self.storage::<C>()
-                    .expect(&format!("Trying to use non registered type {}", C::type_name()))
-                    .ordered_ids()
-                    .into_iter()
-                    .map(|i| *i)
-                    .filter(|i| self.entities[*i].components_mask & mask != mask )
-                    .collect::<Vec<_>>(),
-                Bitmask::HasNot(mask, not) => self.storage::<C>()
-                    .expect(&format!("Trying to use non registered type {}", C::type_name()))
-                    .ordered_ids()
-                    .into_iter()
-                    .map(|i| *i)
-                    .filter(|i| self.entities[*i].components_mask & mask == mask && self.entities[*i].components_mask & not == not )
-                    .collect::<Vec<_>>(),
-            };
+                    .filter(|i| mask.check(self.entities[*i].components_mask))
+                    .collect::<Vec<_>>();
             unsafe{
                 let _guard = self.entities_index_per_mask_guard.write().unwrap();
                 (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));
@@ -518,29 +486,13 @@ impl World{
             .or_insert_with(|| HashMap::new())
             .contains_key(&mask){
 
-            let entities = match mask{
-                Bitmask::Has(mask) => self.storage::<C>()
+            let entities = self.storage::<C>()
                     .expect(&format!("Trying to use non registered type {}", C::type_name()))
                     .ordered_ids()
                     .into_iter()
                     .map(|i| *i)
-                    .filter(|i| self.entities[*i].components_mask & mask == mask )
-                    .collect::<Vec<_>>(),
-                Bitmask::Not(mask) => self.storage::<C>()
-                    .expect(&format!("Trying to use non registered type {}", C::type_name()))
-                    .ordered_ids()
-                    .into_iter()
-                    .map(|i| *i)
-                    .filter(|i| self.entities[*i].components_mask & mask != mask )
-                    .collect::<Vec<_>>(),
-                Bitmask::HasNot(mask, not) => self.storage::<C>()
-                    .expect(&format!("Trying to use non registered type {}", C::type_name()))
-                    .ordered_ids()
-                    .into_iter()
-                    .map(|i| *i)
-                    .filter(|i| self.entities[*i].components_mask & mask == mask && self.entities[*i].components_mask & not == not )
-                    .collect::<Vec<_>>(),
-            };
+                    .filter(|i| mask.check(self.entities[*i].components_mask) )
+                    .collect::<Vec<_>>();
             unsafe{
                 let _guard = self.entities_index_per_mask_guard.write().unwrap();
                 (*self.entities_index_per_mask.get()).insert(mask, RwLock::new(entities));
