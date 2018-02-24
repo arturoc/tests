@@ -5,7 +5,7 @@ use std::mem;
 use std::slice;
 use std::iter;
 
-use sync::{ReadGuardRef, WriteGuardRef, ReadGuard};
+use sync::{ReadGuardRef, WriteGuardRef};
 use ::Component;
 use ::ComponentSync;
 use ::ComponentThreadLocal;
@@ -13,7 +13,6 @@ use ::World;
 use ::IndexGuard;
 use ::Entity;
 use ::Bitmask;
-use boolinator::Boolinator;
 
 pub trait Storage<'a, T>{
     type Get;
@@ -54,11 +53,6 @@ pub struct Not<'a, T: 'a + Component>{
 pub struct ReadNot<'a, T: 'a + Component, Not: 'a + Component>{
     _marker1: marker::PhantomData<&'a T>,
     _marker2: marker::PhantomData<&'a Not>,
-}
-
-pub struct ReadOr<'a, T: 'a + Component, Or: 'a + Component>{
-    _marker1: marker::PhantomData<&'a T>,
-    _marker2: marker::PhantomData<&'a Or>,
 }
 
 // Sync Read/Write
@@ -241,93 +235,153 @@ impl<'a, T: 'a + ComponentSync, Not: Component> UnorderedData<'a> for ReadNot<'a
     }
 }
 
-pub struct ReadOrIter<'a,T1, S1, T2, S2>
-    where S1: ::Storage<'a, T1> + 'a,
-          S2: ::Storage<'a, T2> + 'a,
-{
-    _ids: ::IndexGuard<'a>,
-    ptr: *const usize,
-    end: *const usize,
-    storage: OrStorage<'a, T1, S1, T2, S2>,
+pub struct ReadOr<'a, T: 'a>{
+    _marker: marker::PhantomData<&'a T>,
 }
 
+//-------------------------------------------------------------------
+// ReadOr storage and iterators
+macro_rules! impl_or_iter {
+    ($iter_or: ident, $storage_or: ident, $($t: ident, $s: ident),*) => (
 
-impl<'a, T1, S1: ::StorageRef<'a, T1> + 'a, T2, S2: ::StorageRef<'a, T2> + 'a> Iterator for ReadOrIter<'a,T1,S1,T2,S2>
-    where S1: ::Storage<'a, T1> + 'a,
-          S2: ::Storage<'a, T2> + 'a,
-{
-    type Item = (Option<<S1 as Storage<'a,T1>>::Get>, Option<<S2 as Storage<'a,T2>>::Get>);
-    fn next(&mut self) -> Option<Self::Item>{
-        unsafe {
-            if self.ptr == self.end {
-                None
-            } else {
-                let guid = *self.ptr;
-                self.ptr = self.ptr.offset(1);
-                Some(self.storage.get(guid))
+    pub struct $iter_or<'a,$($t, $s),*>
+        where $($s: ::Storage<'a, $t> + 'a),*
+    {
+        _ids: ::IndexGuard<'a>,
+        ptr: *const usize,
+        end: *const usize,
+        storage: $storage_or<'a, $($t, $s),*>,
+    }
+
+
+    impl<'a, $($t, $s: ::StorageRef<'a, T1> + 'a),*> Iterator for $iter_or<'a,$($t, $s),*>
+        where $($s: ::Storage<'a, $t> + 'a),*
+    {
+        type Item = ($(Option<<$s as ::Storage<'a,$t>>::Get>),*);
+        fn next(&mut self) -> Option<Self::Item>{
+            use ::StorageRef;
+            unsafe {
+                if self.ptr == self.end {
+                    None
+                } else {
+                    let guid = *self.ptr;
+                    self.ptr = self.ptr.offset(1);
+                    Some(self.storage.get(guid))
+                }
             }
         }
     }
-}
 
-pub struct OrStorage<'a, T1, S1, T2, S2>
-    where S1: 'a,
-          S2: 'a,
-{
-    _marker1: marker::PhantomData<T1>,
-    storage1: ReadGuardRef<'a, S1>,
-    _marker2: marker::PhantomData<T2>,
-    storage2: ReadGuardRef<'a, S2>,
-}
-
-impl<'a, T1, T2, S1, S2> StorageRef<'a, (Option<<S1 as Storage<'a,T1>>::Get>, Option<<S2 as Storage<'a,T2>>::Get>) > for OrStorage<'a, T1, S1, T2, S2>
-    where S1: ::Storage<'a, T1> + 'a,
-          S2: ::Storage<'a, T2> + 'a,
-{
-    fn get(&self, guid: usize) -> (Option<<S1 as Storage<'a,T1>>::Get>, Option<<S2 as Storage<'a,T2>>::Get>){
-            let storage1 = unsafe{ mem::transmute::<&S1, &S1>(&*self.storage1) };
-            let storage2 = unsafe{ mem::transmute::<&S2, &S2>(&*self.storage2) };
-            let t1 = storage1.contains(guid)
-                .as_some_from(|| unsafe{ storage1.get(guid) });
-            let t2 = (t1.is_none() || storage2.contains(guid))
-                .as_some_from(|| unsafe{ storage2.get(guid) });
-            (t1, t2)
+    #[allow(non_snake_case, dead_code)]
+    pub struct $storage_or<'a, $($t, $s),*>
+        where $($s: 'a),*
+    {
+        $(
+            $t: marker::PhantomData<$t>,
+            $s: ::ReadGuardRef<'a, $s>,  
+        )*
     }
 
-    fn contains(&self, guid: usize) -> bool{
-        self.storage1.contains(guid) | self.storage2.contains(guid)
-    }
-}
+    impl<'a, $($t, $s),*> ::StorageRef<'a, ($(Option<<$s as ::Storage<'a,$t>>::Get>),*) > for $storage_or<'a, $($t, $s),*>
+        where $($s: ::Storage<'a, $t> + 'a),*
+    {
+        #[allow(non_snake_case)]
+        fn get(&self, guid: usize) -> ($(Option<<$s as ::Storage<'a,$t>>::Get>),*){
+                use boolinator::Boolinator;
+                $(
+                    let $s = unsafe{ ::std::mem::transmute::<&$s, &$s>(&*self.$s) };
+                    let $t = $s.contains(guid)
+                        .as_some_from(|| unsafe{ $s.get(guid) });
+                )*
+                ($($t),*)
+        }
 
-impl<'a, T1: 'a + ComponentSync, T2: 'a + ComponentSync> UnorderedData<'a> for ReadOr<'a,T1,T2> {
-    type Iter = ReadOrIter<'a, T1, <T1 as Component>::Storage,
-                               T2, <T2 as Component>::Storage>;
-    type Components = (Option<T1>, Option<T2>);
-    type ComponentsRef = (Option<<<T1 as Component>::Storage as Storage<'a, T1>>::Get>, Option<<<T2 as Component>::Storage as Storage<'a, T2>>::Get>);
-    type Storage = OrStorage<'a, T1, <T1 as Component>::Storage, T2, <T2 as Component>::Storage>;
-    fn components_mask(world: &'a World) -> Bitmask {
-        Bitmask::or(world.components_mask::<T1>(), world.components_mask::<T2>())
-    }
-
-    fn into_iter(world: &'a ::World) -> Self::Iter {
-        let ids = world.entities_for_mask(<Self as UnorderedData>::components_mask(world));
-        let storage = <Self as UnorderedData>::storage(world);
-        ReadOrIter{
-            ptr: ids.index.as_ptr(),
-            end: unsafe{ ids.index.as_ptr().offset(ids.index.len() as isize) },
-            _ids: ids,
-            storage: storage,
+        fn contains(&self, guid: usize) -> bool{
+            $(self.$s.contains(guid)) | *
         }
     }
 
-    fn storage(world: &'a ::World) -> Self::Storage {
-        OrStorage {
-            storage1: ReadGuardRef::new(ReadGuard::Sync(world.storage::<T1>().unwrap())),
-            _marker1: marker::PhantomData,
-            storage2: ReadGuardRef::new(ReadGuard::Sync(world.storage::<T2>().unwrap())),
-            _marker2: marker::PhantomData,
+    impl<'a, $($t: 'a + ::ComponentSync),*> ::UnorderedData<'a> for ::ReadOr<'a,($($t),*)> {
+        type Iter = $iter_or<'a, $($t, <$t as ::Component>::Storage),*>;
+        type Components = ($(Option<$t>),*);
+        type ComponentsRef = ($(Option<<<$t as ::Component>::Storage as ::Storage<'a, $t>>::Get>),*);
+        type Storage = $storage_or<'a, $($t, <$t as ::Component>::Storage),*>;
+        fn components_mask(world: &'a ::World) -> ::Bitmask {
+            ::Bitmask::or($(world.components_mask::<$t>()) | *)
+        }
+
+        fn into_iter(world: &'a ::World) -> Self::Iter {
+            let ids = world.entities_for_mask(<Self as ::UnorderedData>::components_mask(world));
+            let storage = <Self as ::UnorderedData>::storage(world);
+            $iter_or{
+                ptr: ids.index.as_ptr(),
+                end: unsafe{ ids.index.as_ptr().offset(ids.index.len() as isize) },
+                _ids: ids,
+                storage: storage,
+            }
+        }
+
+        fn storage(world: &'a ::World) -> Self::Storage {
+            $storage_or {
+                $(
+                    $s: ::ReadGuardRef::new(::ReadGuard::Sync(world.storage::<$t>().unwrap())),
+                    $t: marker::PhantomData,
+                )*
+            }
         }
     }
+
+
+    impl<'a, $($t: 'a + ::ComponentSync),*> ::UnorderedDataLocal<'a> for ::ReadOr<'a,($($t),*)> {
+        type Iter = $iter_or<'a, $($t, <$t as ::Component>::Storage),*>;
+        type Components = ($(Option<$t>),*);
+        type ComponentsRef = ($(Option<<<$t as ::Component>::Storage as ::Storage<'a, $t>>::Get>),*);
+        type Storage = $storage_or<'a, $($t, <$t as ::Component>::Storage),*>;
+        fn components_mask(world: &'a ::World) -> ::Bitmask {
+            ::Bitmask::or($( world.components_mask::<$t>() ) | *)
+        }
+
+        fn into_iter(world: &'a ::World) -> Self::Iter {
+            let ids = world.entities_for_mask(<Self as ::UnorderedDataLocal>::components_mask(world));
+            let storage = <Self as ::UnorderedDataLocal>::storage(world);
+            $iter_or{
+                ptr: ids.index.as_ptr(),
+                end: unsafe{ ids.index.as_ptr().offset(ids.index.len() as isize) },
+                _ids: ids,
+                storage: storage,
+            }
+        }
+
+        fn storage(world: &'a ::World) -> Self::Storage {
+            $storage_or {
+                $(
+                    $s: world.storage_thread_local::<$t>().unwrap(),
+                    $t: marker::PhantomData,
+                )*
+            }
+        }
+    }
+)}
+
+
+
+mod or_storage{
+    use std::marker;
+    impl_or_iter!(Iter2, StorageRef2, T1, S1, T2, S2);
+    impl_or_iter!(Iter3, StorageRef3, T1, S1, T2, S2, T3, S3);
+    impl_or_iter!(Iter4, StorageRef4, T1, S1, T2, S2, T3, S3, T4, S4);
+    impl_or_iter!(Iter5, StorageRef5, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5);
+    impl_or_iter!(Iter6, StorageRef6, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6);
+    impl_or_iter!(Iter7, StorageRef7, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7);
+    impl_or_iter!(Iter8, StorageRef8, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7, T8, S8);
+    impl_or_iter!(Iter9, StorageRef9, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7, T8, S8, T9, S9);
+    impl_or_iter!(Iter10, StorageRef10, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7, T8, S8, T9, S9, T10, S10);
+    impl_or_iter!(Iter11, StorageRef11, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7, T8, S8, T9, S9, T10, S10, T11, S11);
+    impl_or_iter!(Iter12, StorageRef12, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7, T8, S8, T9, S9, T10, S10, T11, S11, T12, S12);
+    impl_or_iter!(Iter13, StorageRef13, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7, T8, S8, T9, S9, T10, S10, T11, S11, T12, S12, T13, S13);
+    impl_or_iter!(Iter14, StorageRef14, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7, T8, S8, T9, S9, T10, S10, T11, S11, T12, S12, T13, S13, T14, S14);
+    impl_or_iter!(Iter15, StorageRef15, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7, T8, S8, T9, S9, T10, S10, T11, S11, T12, S12, T13, S13, T14, S14, T15, S15);
+    impl_or_iter!(Iter16, StorageRef16, T1, S1, T2, S2, T3, S3, T4, S4, T5, S5, T6, S6, T7, S7, T8, S8, T9, S9, T10, S10, T11, S11, T12, S12, T13, S13, T14, S14, T15, S15, T16, S16);
 }
 
 impl<'a> IntoIter for &'a [Entity]{
@@ -520,37 +574,6 @@ impl<'a, T: 'a + ComponentSync, Not: Component> UnorderedDataLocal<'a> for ReadN
         StorageReadLocal {
             storage: world.storage_thread_local::<T>().unwrap(),
             _marker: marker::PhantomData,
-        }
-    }
-}
-
-impl<'a, T1: 'a + ComponentSync, T2: 'a + ComponentSync> UnorderedDataLocal<'a> for ReadOr<'a,T1,T2> {
-    type Iter = ReadOrIter<'a, T1, <T1 as Component>::Storage,
-                               T2, <T2 as Component>::Storage>;
-    type Components = (Option<T1>, Option<T2>);
-    type ComponentsRef = (Option<<<T1 as Component>::Storage as Storage<'a, T1>>::Get>, Option<<<T2 as Component>::Storage as Storage<'a, T2>>::Get>);
-    type Storage = OrStorage<'a, T1, <T1 as Component>::Storage, T2, <T2 as Component>::Storage>;
-    fn components_mask(world: &'a World) -> Bitmask {
-        Bitmask::or(world.components_mask::<T1>(), world.components_mask::<T2>())
-    }
-
-    fn into_iter(world: &'a ::World) -> Self::Iter {
-        let ids = world.entities_for_mask(<Self as UnorderedDataLocal>::components_mask(world));
-        let storage = <Self as UnorderedDataLocal>::storage(world);
-        ReadOrIter{
-            ptr: ids.index.as_ptr(),
-            end: unsafe{ ids.index.as_ptr().offset(ids.index.len() as isize) },
-            _ids: ids,
-            storage: storage,
-        }
-    }
-
-    fn storage(world: &'a ::World) -> Self::Storage {
-        OrStorage {
-            storage1: world.storage_thread_local::<T1>().unwrap(),
-            _marker1: marker::PhantomData,
-            storage2: world.storage_thread_local::<T2>().unwrap(),
-            _marker2: marker::PhantomData,
         }
     }
 }

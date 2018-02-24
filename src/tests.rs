@@ -315,8 +315,8 @@ fn insert_reador() {
         .build();
 
     let entities = world.entities();
-    assert_eq!(entities.iter_for::<(::Read<Pos>, ::ReadOr<Vel, Other>)>().count(), 2);
-    let mut iter = entities.iter_for::<(::Read<Pos>, ::ReadOr<Vel, Other>)>();
+    assert_eq!(entities.iter_for::<(::Read<Pos>, ::ReadOr<(Vel, Other)>)>().count(), 2);
+    let mut iter = entities.iter_for::<(::Read<Pos>, ::ReadOr<(Vel, Other)>)>();
     assert_eq!(iter.next(), Some((&Pos{x: 1., y: 1.}, (None, Some(&Other{x: 1., y: 1.})))));
     assert_eq!(iter.next(), Some((&Pos{x: 3., y: 3.}, (Some(&Vel{x: 3., y: 3.}), None))));
     assert_eq!(iter.next(), None);
