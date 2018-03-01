@@ -6,9 +6,11 @@ authors = ["arturo castro <arturo@openframeworks.cc>"]
 [features]
 unstable=[]
 bigint=["num"]
+stats_events=["seitan"]
 
 [dependencies]
 rayon = "*"
 fnv = "*"
 boolinator = "*"
-num = {version = "*", optional = true}
+num = { version = "*", optional = true }
+seitan = { path="../seitan-rs", optional = true }

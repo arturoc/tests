@@ -4,6 +4,8 @@
 extern crate rayon;
 extern crate fnv;
 extern crate boolinator;
+#[cfg(feature="stats_events")]
+extern crate seitan;
 
 #[cfg(feature = "bigint")]
 extern crate num;

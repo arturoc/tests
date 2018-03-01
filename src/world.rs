@@ -15,6 +15,13 @@ use sync::*;
 use rayon::prelude::*;
 use ::{Bitmask, MaskType, NextMask};
 
+
+#[cfg(feature="stats_events")]
+use seitan::*;
+#[cfg(feature="stats_events")]
+use std::time;
+
+
 pub struct World{
     storages: HashMap<TypeId, Box<Any>>,
     storages_thread_local: HashMap<TypeId, Box<Any>>,
@@ -32,10 +39,16 @@ pub struct World{
     pub(crate) components_mask_index: HashMap<TypeId, MaskType>,
 
 
-    systems: Vec<(usize, SyncSystem)>,
-    systems_thread_local: Vec<(usize, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+    systems: Vec<(usize, String, SyncSystem)>,
+    systems_thread_local: Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
     barriers: Vec<(usize)>,
     next_system_priority: AtomicUsize,
+
+    #[cfg(feature="stats_events")]
+    stats: Vec<(String, time::Duration)>,
+
+    #[cfg(feature="stats_events")]
+    stats_events: HashMap<String, SenderRc<'static, time::Duration>>,
 }
 
 unsafe impl Send for World{}
@@ -45,6 +58,7 @@ impl World{
         World{
             storages: HashMap::new(),
             storages_thread_local: HashMap::new(),
+
             resources: HashMap::new(),
             next_guid: AtomicUsize::new(0),
             next_component_mask: NextMask::new(),
@@ -59,6 +73,12 @@ impl World{
             systems_thread_local: vec![],
             barriers: vec![],
             next_system_priority: AtomicUsize::new(0),
+
+            #[cfg(feature="stats_events")]
+            stats: Vec::new(),
+
+            #[cfg(feature="stats_events")]
+            stats_events: HashMap::new(),
         }
     }
 
@@ -250,7 +270,7 @@ impl World{
     where  for<'a> S: ::System<'a> + 'static
     {
         let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems.push((prio, SyncSystem::new(system)));
+        self.systems.push((prio, String::new(), SyncSystem::new(system)));
         self
     }
 
@@ -258,8 +278,35 @@ impl World{
     where  for<'a> S: ::SystemThreadLocal<'a> + 'static
     {
         let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems_thread_local.push((prio, Box::new(system)));
+        self.systems_thread_local.push((prio, String::new(), Box::new(system)));
         self
+    }
+
+    #[cfg(feature="stats_events")]
+    pub fn add_system_with_stats<S>(&mut self, system: S, name: &str) -> &mut World
+    where  for<'a> S: ::System<'a> + 'static
+    {
+        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.systems.push((prio, name.to_owned(), SyncSystem::new(system)));
+        self.stats_events.insert(name.to_owned(), SenderRc::new());
+        self
+    }
+
+    #[cfg(feature="stats_events")]
+    pub fn add_system_with_stats_thread_local<S>(&mut self, system: S, name: &str) -> &mut World
+    where  for<'a> S: ::SystemThreadLocal<'a> + 'static
+    {
+        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.systems_thread_local.push((prio, name.to_owned(), Box::new(system)));
+        self.stats_events.insert(name.to_owned(), SenderRc::new());
+        self
+    }
+
+    #[cfg(feature="stats_events")]
+    pub fn stats(&mut self) -> Vec<(String, Property<'static, time::Duration>)>{
+        self.stats_events.iter_mut()
+            .map(|(name, sender)| (name.clone(), sender.stream().to_property(time::Duration::new(0, 0))))
+            .collect()
     }
 
     pub fn add_barrier(&mut self) -> &mut World
@@ -271,9 +318,15 @@ impl World{
 
     pub fn run_once(&mut self){
         let systems_thread_local = unsafe{ mem::transmute::<
-                &mut Vec<(usize, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
-                &mut Vec<(usize, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
+                &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+                &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
             >(&mut self.systems_thread_local) };
+        self.stats.reserve(self.systems.len() + self.systems_thread_local.len());
+        self.stats.clear();
+        let stats = unsafe{ mem::transmute::<
+                &mut Vec<(String, time::Duration)>, 
+                &mut Vec<(String, time::Duration)>
+            >(&mut self.stats)};
         let mut i_systems = 0;
         let mut i_systems_tl = 0;
         let mut i_barriers = 0;
@@ -287,13 +340,13 @@ impl World{
                 None => u32::MAX,
             };
             match (next_system, next_system_tl){
-                (Some(&(sys_prio, ref system)), Some(&mut(sys_tl_prio, ref mut system_tl))) => {
+                (Some(&(sys_prio, ref name, ref system)), Some(&mut(sys_tl_prio, ref name_tl, ref mut system_tl))) => {
                     if sys_prio < sys_tl_prio {
-                        let mut parallel_systems = vec![(sys_prio, system)];
+                        let mut parallel_systems = vec![(sys_prio, name.clone(), system)];
                         i_systems += 1;
-                        while let Some(&(sys_prio, ref system)) = self.systems.get(i_systems){
+                        while let Some(&(sys_prio, ref name, ref system)) = self.systems.get(i_systems){
                             if sys_prio < sys_tl_prio  && sys_prio < next_barrier as usize{
-                                parallel_systems.push((sys_prio, system));
+                                parallel_systems.push((sys_prio, name.clone(), system));
                                 i_systems += 1;
                             }else{
                                 if sys_prio > next_barrier as usize{
@@ -302,20 +355,50 @@ impl World{
                                 break;
                             }
                         }
-                        parallel_systems.par_iter().for_each(|&(_, s)| {
+
+
+                        #[cfg(feature="stats_events")]
+                        stats.par_extend(parallel_systems.par_iter().filter_map(|&(_, ref name, s)| {
+                            if name != "" {
+                                let then = time::Instant::now();
+                                s.borrow_mut().run(entities, resources);
+                                let now = time::Instant::now();
+                                Some((name.clone(), now - then))
+                            }else{
+                                system.borrow_mut().run(entities, resources);
+                                None
+                            }
+                        }));
+
+                        #[cfg(not(feature="stats_events"))]
+                        parallel_systems.par_iter().for_each(|&(_, name, s)| {
                             s.borrow_mut().run(entities, resources)
                         });
                     }else{
+                        #[cfg(feature="stats_events")]
+                        {
+                            if name_tl != "" {
+                                let then = time::Instant::now();
+                                system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                                let now = time::Instant::now();
+                                stats.push((name_tl.clone(), now - then));
+                            }else{
+                                system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                            }
+                        }
+
+                        #[cfg(not(feature="stats_events"))]
                         system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+
                         i_systems_tl += 1;
                     }
                 }
-                (Some(&(sys_prio, ref system)), None) => {
-                    let mut parallel_systems = vec![(sys_prio, system)];
+                (Some(&(sys_prio, ref name, ref system)), None) => {
+                    let mut parallel_systems = vec![(sys_prio, name.clone(), system)];
                     i_systems += 1;
-                    while let Some(&(sys_prio, ref system)) = self.systems.get(i_systems){
+                    while let Some(&(sys_prio, ref name, ref system)) = self.systems.get(i_systems){
                         if sys_prio < next_barrier as usize{
-                            parallel_systems.push((sys_prio, system));
+                            parallel_systems.push((sys_prio, name.clone(), system));
                             i_systems += 1;
                         }else{
                             if sys_prio > next_barrier as usize{
@@ -325,16 +408,48 @@ impl World{
                         }
                     }
 
-                    parallel_systems.par_iter().for_each(|&(_, s)| {
+
+                    #[cfg(feature="stats_events")]
+                    stats.par_extend(parallel_systems.par_iter().filter_map(|&(_, ref name, s)| {
+                        if name != "" {
+                            let then = time::Instant::now();
+                            s.borrow_mut().run(entities, resources);
+                            let now = time::Instant::now();
+                            Some((name.clone(), now - then))
+                        }else{
+                            system.borrow_mut().run(entities, resources);
+                            None
+                        }
+                    }));
+
+                    #[cfg(not(feature="stats_events"))]
+                    parallel_systems.par_iter().for_each(|&(_, name, s)| {
                         s.borrow_mut().run(entities, resources)
                     });
                 }
-                (None, Some(&mut(_, ref mut system_tl))) => {
+                (None, Some(&mut(_, ref name, ref mut system_tl))) => {
+                    #[cfg(feature="stats_events")]
+                    {
+                        if name != "" {
+                            let then = time::Instant::now();
+                            system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                            let now = time::Instant::now();
+                            stats.push((name.clone(), now - then));
+                        }else{
+                            system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                        }
+                    }
+
+                    #[cfg(not(feature="stats_events"))]
                     system_tl.run(self.entities_thread_local(), self.resources_thread_local());
                     i_systems_tl += 1;
                 }
                 (None, None) => break
             }
+        }
+
+        for stat in self.stats.iter() {
+            self.stats_events[&stat.0].send(stat.1);
         }
     }
 
