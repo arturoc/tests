@@ -235,6 +235,115 @@ impl<'a, T: 'a + ComponentSync, Not: Component> UnorderedData<'a> for ReadNot<'a
     }
 }
 
+pub struct ReadOption<'a, T: 'a>{
+    _marker: marker::PhantomData<&'a T>,
+}
+
+pub struct IterOption<'a, T, S>
+        where S: ::Storage<'a, T> + 'a
+{
+    last_guid: usize,
+    next: usize,
+    storage: StorageOption<'a, T, S>,
+}
+
+
+impl<'a, T, S: ::StorageRef<'a, T> + 'a> Iterator for IterOption<'a, T,S>
+    where S: ::Storage<'a, T> + 'a
+{
+    type Item = Option<<S as ::Storage<'a,T>>::Get>;
+    fn next(&mut self) -> Option<Self::Item>{
+        use ::StorageRef;
+        unsafe {
+            if self.next > self.last_guid {
+                None
+            } else {
+                let next = self.next;
+                self.next += 1;
+                Some(self.storage.get(next))
+            }
+        }
+    }
+}
+
+pub struct StorageOption<'a, T, S>
+    where S: 'a
+{
+    _marker: marker::PhantomData<T>,
+    storage: ::ReadGuardRef<'a, S>,
+}
+
+impl<'a, T, S> ::StorageRef<'a, Option<<S as ::Storage<'a,T>>::Get>> for StorageOption<'a, T, S>
+    where S: ::Storage<'a, T> + 'a
+{
+    #[allow(non_snake_case)]
+    fn get(&self, guid: usize) -> Option<<S as ::Storage<'a,T>>::Get>{
+        use boolinator::Boolinator;
+        let storage = unsafe{ ::std::mem::transmute::<&S, &S>(&*self.storage) };
+        storage.contains(guid)
+            .as_some_from(|| unsafe{ storage.get(guid) })
+    }
+
+    fn contains(&self, guid: usize) -> bool{
+        self.storage.contains(guid)
+    }
+}
+
+impl<'a, T: 'a + ::ComponentSync> ::UnorderedData<'a> for ::ReadOption<'a,T> {
+    type Iter = IterOption<'a, T, <T as ::Component>::Storage>;
+    type Components = Option<T>;
+    type ComponentsRef = Option<<<T as ::Component>::Storage as ::Storage<'a, T>>::Get>;
+    type Storage = StorageOption<'a, T, <T as ::Component>::Storage>;
+    fn components_mask(world: &'a ::World) -> ::Bitmask {
+        ::Bitmask::all()
+    }
+
+    fn into_iter(world: &'a ::World) -> Self::Iter {
+        let storage = <Self as ::UnorderedData>::storage(world);
+        IterOption {
+            next: 0,
+            last_guid: world.last_guid(),
+            storage,
+        }
+    }
+
+    fn storage(world: &'a ::World) -> Self::Storage {
+        StorageOption{
+            storage: ::ReadGuardRef::new(::ReadGuard::Sync(world.storage::<T>().unwrap())),
+            _marker: marker::PhantomData,
+        }
+    }
+}
+
+
+impl<'a, T: 'a + ::Component> ::UnorderedDataLocal<'a> for ::ReadOption<'a,T> {
+    type Iter = IterOption<'a, T, <T as ::Component>::Storage>;
+    type Components = Option<T>;
+    type ComponentsRef = Option<<<T as ::Component>::Storage as ::Storage<'a, T>>::Get>;
+    type Storage = StorageOption<'a, T, <T as ::Component>::Storage>;
+    fn components_mask(world: &'a ::World) -> ::Bitmask {
+        ::Bitmask::all()
+    }
+
+    fn into_iter(world: &'a ::World) -> Self::Iter {
+        let storage = <Self as ::UnorderedDataLocal>::storage(world);
+        IterOption {
+            next: 0,
+            last_guid: world.last_guid(),
+            storage: storage,
+        }
+    }
+
+    fn storage(world: &'a ::World) -> Self::Storage {
+        StorageOption {
+            storage: world.storage_thread_local::<T>().unwrap(),
+            _marker: marker::PhantomData,
+        }
+    }
+}
+
+
+
 pub struct ReadOr<'a, T: 'a>{
     _marker: marker::PhantomData<&'a T>,
 }
@@ -278,7 +387,7 @@ macro_rules! impl_or_iter {
     {
         $(
             $t: marker::PhantomData<$t>,
-            $s: ::ReadGuardRef<'a, $s>,  
+            $s: ::ReadGuardRef<'a, $s>,
         )*
     }
 
@@ -332,7 +441,7 @@ macro_rules! impl_or_iter {
     }
 
 
-    impl<'a, $($t: 'a + ::ComponentSync),*> ::UnorderedDataLocal<'a> for ::ReadOr<'a,($($t),*)> {
+    impl<'a, $($t: 'a + ::Component),*> ::UnorderedDataLocal<'a> for ::ReadOr<'a,($($t),*)> {
         type Iter = $iter_or<'a, $($t, <$t as ::Component>::Storage),*>;
         type Components = ($(Option<$t>),*);
         type ComponentsRef = ($(Option<<<$t as ::Component>::Storage as ::Storage<'a, $t>>::Get>),*);
@@ -367,6 +476,7 @@ macro_rules! impl_or_iter {
 
 mod or_storage{
     use std::marker;
+    // impl_or_iter!(Iter1, StorageRef1, T1, S1);
     impl_or_iter!(Iter2, StorageRef2, T1, S1, T2, S2);
     impl_or_iter!(Iter3, StorageRef3, T1, S1, T2, S2, T3, S3);
     impl_or_iter!(Iter4, StorageRef4, T1, S1, T2, S2, T3, S3, T4, S4);
