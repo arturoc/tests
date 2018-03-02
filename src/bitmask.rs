@@ -28,7 +28,7 @@ mod mask {
             *next *= 2;
             ret
         }
-        
+
         pub fn get(&self) -> MaskType {
             self.next.load(Ordering::Relaxed)
         }
@@ -111,17 +111,17 @@ impl Bitmask{
     #[inline]
     pub fn check(&self, mask: MaskType) -> bool {
         match *self {
-            Bitmask::HasNot(ref has, ref not) => mask.clone() & has.clone() == *has && 
+            Bitmask::HasNot(ref has, ref not) => mask.clone() & has.clone() == *has &&
                                                  mask.clone() & not.clone() != *not,
             Bitmask::Has(ref has) => mask.clone() & has.clone() == *has,
             Bitmask::Not(ref not) => mask.clone() & not.clone() != *not,
             Bitmask::Or(ref or) => mask.clone() & or.clone() != MaskType::from(0usize),
-            Bitmask::HasOr(ref has, ref or) => mask.clone() & has.clone() == *has && 
+            Bitmask::HasOr(ref has, ref or) => mask.clone() & has.clone() == *has &&
                                                mask.clone() & or.clone() != MaskType::from(0usize),
-            Bitmask::NotOr(ref not, ref or) => mask.clone() & not.clone() != *not && 
+            Bitmask::NotOr(ref not, ref or) => mask.clone() & not.clone() != *not &&
                                                mask.clone() & or.clone() != MaskType::from(0usize),
-            Bitmask::HasNotOr(ref has, ref not, ref or) => mask.clone() & has.clone() == *has &&  
-                                                           mask.clone() & not.clone() != *not && 
+            Bitmask::HasNotOr(ref has, ref not, ref or) => mask.clone() & has.clone() == *has &&
+                                                           mask.clone() & not.clone() != *not &&
                                                            mask.clone() & or.clone() != MaskType::from(0usize),
             Bitmask::All => true,
         }
@@ -151,7 +151,7 @@ impl BitOr for Bitmask{
             (Not(not), NotOr(rhs_not, rhs_or))    => NotOr(not & rhs_not, rhs_or),
             (Not(not), HasNotOr(rhs, rhs_not, rhs_or))    => HasNotOr(rhs, not & rhs_not, rhs_or),
             (Not(not), All)        => Not(not),
-            
+
             // (HasNot(has, not), Has(rhs))   => HasNot(has | rhs, not),
             // (HasNot(has, not), Not(rhs))   => HasNot(has, not & rhs),
             (HasNot(has, not), HasNot(rhs, rhs_not))      => HasNot(has | rhs, not & rhs_not),
@@ -187,7 +187,7 @@ impl BitOr for Bitmask{
             (NotOr(not, or), NotOr(rhs_not, rhs_or))    => NotOr(not & rhs_not, or | rhs_or),
             (NotOr(not, or), HasNotOr(rhs, rhs_not, rhs_or))    => HasNotOr(rhs, not & rhs_not, or | rhs_or),
             (NotOr(not, or), All)        => NotOr(not, or),
-            
+
             // (HasNotOr(has, not, or), Has(rhs))   => HasNotOr(has | rhs, not, or),
             // (HasNotOr(has, not, or), Not(rhs))   => HasNotOr(has, not & rhs, or),
             // (HasNotOr(has, not, or), HasNot(rhs, rhs_not))      => HasNotOr(has | rhs, not & rhs_not, or),
