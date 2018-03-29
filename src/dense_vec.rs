@@ -4,6 +4,7 @@ use std::ptr;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
 use std::usize;
+use std::iter::FromIterator;
 
 use storage::{Storage, IntoIter, IntoIterMut};
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
@@ -246,3 +247,20 @@ impl<'a, T> IntoIterMut for RwLockWriteGuard<'a, DenseVec<T>>{
 //         }
 //     }
 // }
+
+
+impl<T> FromIterator<(usize,T)> for DenseVec<T>{
+    fn from_iter<I>(iter: I) -> DenseVec<T>
+    where I: IntoIterator<Item = (usize,T)>
+    {
+        let iter = iter.into_iter();
+        let mut dense_vec = match iter.size_hint(){
+            (_lower, Some(upper)) => DenseVec::with_capacity(upper),
+            (lower, None) => DenseVec::with_capacity(lower),
+        };
+        for (id, t) in iter {
+            dense_vec.insert(id, t)
+        }
+        dense_vec
+    }
+}
