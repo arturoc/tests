@@ -16,10 +16,9 @@ use sync::{ReadGuardRef, ReadGuard, WriteGuardRef, WriteGuard, Ptr, PtrMut, Node
 use boolinator::Boolinator;
 use ::MaskType;
 
-#[derive(Clone,Eq,PartialEq,Debug)]
+#[derive(Clone,Copy,Eq,PartialEq,Debug)]
 pub struct Entity {
     guid: usize,
-    pub(crate) components_mask: MaskType,
 }
 
 impl Entity{
@@ -47,9 +46,8 @@ impl<'a> EntityBuilder<'a>{
     pub fn build(self) -> Entity{
         let entity = Entity{
             guid: self.guid,
-            components_mask: self.components_mask,
         };
-        self.world.push_entity(entity.clone());
+        self.world.push_entity(entity, self.components_mask.clone());
         entity
     }
 

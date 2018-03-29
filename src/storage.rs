@@ -501,28 +501,37 @@ impl<'a> IntoIter for &'a [Entity]{
     }
 }
 
-impl<'a> StorageRef<'a, &'a Entity> for &'a [Entity]{
-    fn get(&self, guid: usize) -> &'a Entity{
-        unsafe{ self.get_unchecked(guid) }
+impl<'a> StorageRef<'a, Entity> for &'a [(Entity, ::MaskType)]{
+    fn get(&self, guid: usize) -> Entity{
+        unsafe{ self.get_unchecked(guid).0 }
     }
 
     fn contains(&self, guid: usize) -> bool{
         // TODO: This is slow but will never get called, right?
-        self.iter().find(|e| e.guid() == guid).is_some()
+        self.iter().find(|&&(e, _)| e.guid() == guid).is_some()
+    }
+}
+
+pub struct EntitiesIter<'a>(slice::Iter<'a, (Entity, ::MaskType)>);
+
+impl<'a> Iterator for EntitiesIter<'a>{
+    type Item = Entity;
+    fn next(&mut self) -> Option<Entity>{
+        self.0.next().map(|&(e, _)| e)
     }
 }
 
 impl<'a> UnorderedData<'a> for ReadEntities {
-    type Iter = slice::Iter<'a,Entity>;
+    type Iter = EntitiesIter<'a>;
     type Components = Entity;
-    type ComponentsRef = &'a Entity;
-    type Storage = &'a [Entity];
+    type ComponentsRef = Entity;
+    type Storage = &'a [(Entity, ::MaskType)];
     fn components_mask(_world: &'a World) -> Bitmask{
         Bitmask::all()
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
-        world.entities_ref().iter()
+        EntitiesIter(world.entities_ref().iter())
     }
 
     fn storage(world: &'a ::World) -> Self::Storage{
@@ -623,16 +632,16 @@ impl<'a, T: 'a + ComponentThreadLocal> UnorderedDataLocal<'a> for Write<'a,T>
 
 
 impl<'a> UnorderedDataLocal<'a> for ReadEntities {
-    type Iter = slice::Iter<'a,Entity>;
+    type Iter = EntitiesIter<'a>;
     type Components = Entity;
-    type ComponentsRef = &'a Entity;
-    type Storage = &'a [Entity];
+    type ComponentsRef = Entity;
+    type Storage = &'a [(Entity, ::MaskType)];
     fn components_mask(_world: &'a World) -> Bitmask{
         Bitmask::all()
     }
 
     fn into_iter(world: &'a ::World) -> Self::Iter{
-        world.entities_ref().iter()
+        EntitiesIter(world.entities_ref().iter())
     }
 
     fn storage(world: &'a ::World) -> Self::Storage{

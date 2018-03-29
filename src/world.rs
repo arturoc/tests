@@ -30,7 +30,7 @@ pub struct World{
     resources: HashMap<TypeId, Box<Any>>,
 
     next_guid: AtomicUsize,
-    entities: Vec<Entity>, // Doesn't need lock cause never accesed mut from Entities?
+    entities: Vec<(Entity, ::MaskType)>, // Doesn't need lock cause never accesed mut from Entities?
     entities_index_per_mask: UnsafeCell<HashMap<Bitmask, RwLock<Vec<usize>>>>,
     entities_index_per_mask_guard: RwLock<()>,
     ordered_entities_index_per_mask: RwLock<HashMap<TypeId, HashMap<Bitmask, Vec<usize>>>>,
@@ -137,8 +137,8 @@ impl World{
         self.storage_mut::<C>()
             .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
             .insert(entity.guid(), component);
-        let entity = &mut self.entities[entity.guid()];
-        entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
+        let &mut (_entity, ref mut mask) = &mut self.entities[entity.guid()];
+        *mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
     }
 
     pub fn add_component_to_thread_local<C: ComponentThreadLocal>(&mut self, entity: &Entity, component: C){
@@ -146,8 +146,8 @@ impl World{
         self.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
             .insert(entity.guid(), component);
-        let entity = &mut self.entities[entity.guid()];
-        entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
+        let &mut (_entity, ref mut mask) = &mut self.entities[entity.guid()];
+        *mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
     }
 
     pub fn add_slice_component_to<C: OneToNComponentSync>(&mut self, entity: &Entity, component: &[C]){
@@ -155,8 +155,8 @@ impl World{
         self.storage_mut::<C>()
             .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
             .insert_slice(entity.guid(), component);
-        let entity = &mut self.entities[entity.guid()];
-        entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
+        let &mut (_entity, ref mut mask) = &mut self.entities[entity.guid()];
+        *mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
     }
 
     pub fn add_slice_component_to_thread_local<C: OneToNComponentThreadLocal>(&mut self, entity: &Entity, component: &[C]){
@@ -164,15 +164,15 @@ impl World{
         self.storage_thread_local_mut::<C>()
             .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
             .insert_slice(entity.guid(), component);
-        let entity = &mut self.entities[entity.guid()];
-        entity.components_mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
+        let &mut (_entity, ref mut mask) = &mut self.entities[entity.guid()];
+        *mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
     }
 
     pub fn remove_component_from<C: ::Component>(&mut self, entity: &::Entity){
         self.storage_mut::<C>()
             .expect(&format!("Trying to remove component of type {} without registering first", C::type_name()))
             .remove(entity.guid());
-        self.entities[entity.guid()].components_mask ^= self.components_mask_index[&TypeId::of::<C>()].clone();
+        self.entities[entity.guid()].1 ^= self.components_mask_index[&TypeId::of::<C>()].clone();
         let mask = self.components_mask::<C>();
         let type_id = self.reverse_components_mask_index[&mask];
         if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(&type_id){
@@ -183,16 +183,16 @@ impl World{
 
     pub fn remove_entity(&mut self, entity: &::Entity){
         //if let Ok(pos) = self.entities.binary_search_by(|e| e.guid().cmp(&entity.guid())){
-        let entity = unsafe{ mem::transmute::<&mut Entity, &mut Entity>(&mut self.entities[entity.guid()]) };
+        let entity_mask = unsafe{ mem::transmute::<&mut ::MaskType, &mut ::MaskType>(&mut self.entities[entity.guid()].1) };
         let mut mask = MaskType::from(1usize);
         while mask < self.next_component_mask.get(){
-            if entity.components_mask.clone() & mask.clone() == mask{
+            if entity_mask.clone() & mask.clone() == mask{
                 // let storage = &self.storages[&type_id];
                 let remove_component = unsafe{
                     mem::transmute::<&Box<Fn(&World, usize)>, &Box<Fn(&World, usize)>>(&self.remove_components_mask_index[&mask])
                 };
                 remove_component(self, entity.guid());
-                entity.components_mask ^= mask.clone();
+                *entity_mask ^= mask.clone();
                 let type_id = self.reverse_components_mask_index[&mask];
                 if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(&type_id){
                     cache.clear();
@@ -207,6 +207,7 @@ impl World{
         // without problem
         // Use DenseVec for entities storage?
         // self.entities.remove(pos);
+        // self.masks.remove(pos)
     }
 
     pub fn add_resource<T: 'static + Send>(&mut self, resource: T){
@@ -519,7 +520,7 @@ impl World{
         }
     }
 
-    pub(crate) fn entities_ref(&self) -> &[Entity]{
+    pub(crate) fn entities_ref(&self) -> &[(Entity, ::MaskType)]{
         &self.entities
     }
 
@@ -531,9 +532,9 @@ impl World{
         self.next_guid.load(Ordering::SeqCst)
     }
 
-    pub(crate) fn push_entity(&mut self, e: ::Entity){
+    pub(crate) fn push_entity(&mut self, e: ::Entity, mask: ::MaskType){
         self.clear_entities_per_mask_index();
-        self.entities.push(e)
+        self.entities.push((e, mask));
     }
 
     pub(crate) fn storage<C: ::Component>(&self) -> Option<RwLockReadGuard<<C as ::Component>::Storage>> {
@@ -586,8 +587,8 @@ impl World{
             (*self.entities_index_per_mask.get()).contains_key(&mask)
         };
         if !contains_key {
-            let entities = self.entities.iter().filter_map(|e| {
-                    if mask.check(e.components_mask.clone()) {
+            let entities = self.entities.iter().filter_map(|&(e, ref entity_mask)| {
+                    if mask.check(entity_mask.clone()) {
                         Some(e.guid())
                     }else{
                         None
@@ -625,7 +626,7 @@ impl World{
                     .ordered_ids()
                     .into_iter()
                     .map(|i| *i)
-                    .filter(|i| mask.check(self.entities[*i].components_mask.clone()))
+                    .filter(|i| mask.check(self.entities[*i].1.clone()))
                     .collect::<Vec<_>>();
             unsafe{
                 let _guard = self.entities_index_per_mask_guard.write().unwrap();
@@ -660,7 +661,7 @@ impl World{
                     .ordered_ids()
                     .into_iter()
                     .map(|i| *i)
-                    .filter(|i| mask.check(self.entities[*i].components_mask.clone()) )
+                    .filter(|i| mask.check(self.entities[*i].1.clone()) )
                     .collect::<Vec<_>>();
             unsafe{
                 let _guard = self.entities_index_per_mask_guard.write().unwrap();
