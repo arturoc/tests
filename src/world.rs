@@ -6,9 +6,11 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
 use std::mem;
 use std::u32;
+use std::thread;
 
 use ::Entity;
-use component::{ComponentSync, Component, ComponentThreadLocal, OneToNComponentSync, OneToNComponentThreadLocal};
+use component::{ComponentSync, Component, ComponentThreadLocal,
+    OneToNComponentSync, OneToNComponentThreadLocal};
 use storage::{Storage, HierarchicalStorage, OneToNStorage};
 use entity::{EntityBuilder, Entities, EntitiesThreadLocal};
 use sync::*;
@@ -321,12 +323,22 @@ impl World{
                 &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
                 &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
             >(&mut self.systems_thread_local) };
-        self.stats.reserve(self.systems.len() + self.systems_thread_local.len());
-        self.stats.clear();
-        let stats = unsafe{ mem::transmute::<
-                &mut Vec<(String, time::Duration)>, 
-                &mut Vec<(String, time::Duration)>
-            >(&mut self.stats)};
+        let systems_thread_local2 = unsafe{ mem::transmute::<
+                &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+                &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
+            >(&mut self.systems_thread_local) };
+
+
+        #[cfg(feature="stats_events")]
+        let stats = {
+            self.stats.reserve(self.systems.len() + self.systems_thread_local.len());
+            self.stats.clear();
+            unsafe{ mem::transmute::<
+                    &mut Vec<(String, time::Duration)>,
+                    &mut Vec<(String, time::Duration)>
+                >(&mut self.stats)}
+        };
+
         let mut i_systems = 0;
         let mut i_systems_tl = 0;
         let mut i_barriers = 0;
@@ -371,9 +383,55 @@ impl World{
                         }));
 
                         #[cfg(not(feature="stats_events"))]
-                        parallel_systems.par_iter().for_each(|&(_, name, s)| {
+                        parallel_systems.par_iter().for_each(|&(_, _, s)| {
                             s.borrow_mut().run(entities, resources)
                         });
+
+                        // Run next tl systems in parallel but on the main thread
+                        // not possible with rayon atm? we need to async wait for the
+                        // parallel systems to finish
+                        // if sys_tl_prio < next_barrier as usize {
+                        //     #[cfg(feature="stats_events")]
+                        //     {
+                        //         if name_tl != "" {
+                        //             let then = time::Instant::now();
+                        //             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                        //             let now = time::Instant::now();
+                        //             stats.push((name_tl.clone(), now - then));
+                        //         }else{
+                        //             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                        //         }
+                        //     }
+
+                        //     #[cfg(not(feature="stats_events"))]
+                        //     system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+
+                        //     while let Some(&mut (sys_tl_prio, ref name_tl, ref mut system_tl)) = systems_thread_local2.get_mut(i_systems_tl){
+                        //         if sys_tl_prio < next_barrier as usize{
+                        //             #[cfg(feature="stats_events")]
+                        //             {
+                        //                 if name_tl != "" {
+                        //                     let then = time::Instant::now();
+                        //                     system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                        //                     let now = time::Instant::now();
+                        //                     stats.push((name_tl.clone(), now - then));
+                        //                 }else{
+                        //                     system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                        //                 }
+                        //             }
+
+                        //             #[cfg(not(feature="stats_events"))]
+                        //             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+
+                        //             i_systems_tl += 1;
+                        //         }else{
+                        //             if sys_prio > next_barrier as usize{
+                        //                 i_barriers += 1;
+                        //             }
+                        //             break;
+                        //         }
+                        //     }
+                        // }
                     }else{
                         #[cfg(feature="stats_events")]
                         {
@@ -423,18 +481,18 @@ impl World{
                     }));
 
                     #[cfg(not(feature="stats_events"))]
-                    parallel_systems.par_iter().for_each(|&(_, name, s)| {
+                    parallel_systems.par_iter().for_each(|&(_, _, s)| {
                         s.borrow_mut().run(entities, resources)
                     });
                 }
-                (None, Some(&mut(_, ref name, ref mut system_tl))) => {
+                (None, Some(&mut(_, ref _name, ref mut system_tl))) => {
                     #[cfg(feature="stats_events")]
                     {
-                        if name != "" {
+                        if _name != "" {
                             let then = time::Instant::now();
                             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
                             let now = time::Instant::now();
-                            stats.push((name.clone(), now - then));
+                            stats.push((_name.clone(), now - then));
                         }else{
                             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
                         }
@@ -448,6 +506,7 @@ impl World{
             }
         }
 
+        #[cfg(feature="stats_events")]
         for stat in self.stats.iter() {
             self.stats_events[&stat.0].send(stat.1);
         }
@@ -466,6 +525,10 @@ impl World{
 
     pub(crate) fn next_guid(&mut self) -> usize{
         self.next_guid.fetch_add(1, Ordering::SeqCst)
+    }
+
+    pub(crate) fn last_guid(&self) -> usize{
+        self.next_guid.load(Ordering::SeqCst)
     }
 
     pub(crate) fn push_entity(&mut self, e: ::Entity){

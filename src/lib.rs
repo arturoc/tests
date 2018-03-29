@@ -13,7 +13,7 @@ extern crate num;
 use sync::*;
 use storage::*;
 use bitmask::*;
-pub use storage::{Read, Write, Not, ReadNot, ReadOr,
+pub use storage::{Read, Write, Not, ReadNot, ReadOr, ReadOption,
     Storage, IntoIter, IntoIterMut,
     ReadEntities,
     ReadHierarchical, WriteHierarchical, HierarchicalStorage,
@@ -21,7 +21,8 @@ pub use storage::{Read, Write, Not, ReadNot, ReadOr,
     HierarchicalOneToNStorage,
 };
 pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder};
-pub use component::{Component, ComponentSync, ComponentThreadLocal, OneToNComponent, HierarchicalOneToNComponent};
+pub use component::{Component, ComponentSync, ComponentThreadLocal,
+    OneToNComponent, HierarchicalOneToNComponent};
 pub use dense_vec::DenseVec;
 pub use forest::Forest;
 pub use vec::VecStorage;
