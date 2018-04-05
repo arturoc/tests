@@ -152,28 +152,22 @@ impl DynamicSystemLoader{
                             println!("Reloading {:?} {:?}", lib_path, systems);
                             let library = libraries.get_mut(lib_path).unwrap();
                             let mut old_library = library.write().unwrap();
-                            unsafe{
-                                // drop old library to avoid dlopen refcount
-                                old_library.set_new_library(mem::uninitialized());
-                            }
+                            let mut unloaded_library = old_library.unload_library();
 
                             if let Ok((library, templib)) = temporary_library(&lib_path) {
-                                let old_lib = old_library.set_new_library(library);
-                                mem::forget(old_lib);
+                                let mut new_library = unloaded_library.load(library);
                                 for system_path in systems {
-                                    if let Ok(system) = unsafe{ old_library.get(system_path.system.as_bytes()) } {
+                                    if let Ok(system) = unsafe{ new_library.get(system_path.system.as_bytes()) } {
                                         println!("{}::{} reloaded", system_path.library, system_path.system);
                                         data_systems.get_mut(system_path).unwrap().set(system);
                                     }else{
                                         println!("Error: {:?} reloaded but couldn't find system {}", lib_path, system_path.system);
                                     }
                                 }
-                                old_library.set_new_library_tempfile(templib);
+                                new_library.set_new_library_tempfile(templib);
                             }else{
                                 println!("Error: Couldn't reload library {:?}, trying to reload previous library", lib_path);
-                                let library = lib::Library::new(old_library.temp_path().as_os_str()).unwrap();
-                                let old_lib = old_library.set_new_library(library);
-                                mem::forget(old_lib);
+                                unloaded_library.reload().unwrap();
                             }
                         }
                     }
@@ -325,6 +319,7 @@ struct DynamicLibrary(Arc<RwLock<(lib::Library, tempfile::TempPath)>>);
 
 struct DynamicLibraryReadGuard<'a>(RwLockReadGuard<'a, (lib::Library, tempfile::TempPath)>);
 struct DynamicLibraryWriteGuard<'a>(RwLockWriteGuard<'a, (lib::Library, tempfile::TempPath)>);
+struct DynamicLibraryWriteGuardUnloaded<'a>(RwLockWriteGuard<'a, (lib::Library, tempfile::TempPath)>);
 
 impl DynamicLibrary{
     fn read(&self) -> Result<DynamicLibraryReadGuard, PoisonError<RwLockReadGuard<(lib::Library, tempfile::TempPath)>>>{
@@ -332,7 +327,7 @@ impl DynamicLibrary{
     }
 
     fn write(&self) -> Result<DynamicLibraryWriteGuard, PoisonError<RwLockWriteGuard<(lib::Library, tempfile::TempPath)>>>{
-        self.0.write().map(|g| DynamicLibraryWriteGuard(g))
+        self.0.write().map(|g| DynamicLibraryWriteGuard(g) )
     }
 }
 
@@ -347,8 +342,15 @@ impl<'a> DynamicLibraryWriteGuard<'a>{
         (self.0).0.get(symbol).map(|s: lib::Symbol<T>| s.into_raw())
     }
 
-    fn set_new_library(&mut self, new_lib: lib::Library) -> lib::Library{
-        mem::replace(&mut (self.0).0, new_lib)
+    fn unload_library(mut self) -> DynamicLibraryWriteGuardUnloaded<'a>{
+        unsafe{
+            mem::replace(&mut (self.0).0, mem::uninitialized());
+            DynamicLibraryWriteGuardUnloaded(self.0)
+        }
+    }
+
+    fn replace_library(&mut self, new_lib: lib::Library){
+        mem::replace(&mut (self.0).0, new_lib);
     }
 
     fn set_new_library_tempfile(&mut self, tempfile: tempfile::TempPath){
@@ -357,6 +359,27 @@ impl<'a> DynamicLibraryWriteGuard<'a>{
 
     fn temp_path(&self) -> &tempfile::TempPath{
         &(self.0).1
+    }
+}
+
+impl<'a> Drop for DynamicLibraryWriteGuardUnloaded<'a>{
+    fn drop(&mut self){
+        panic!("Trying to unlock an unloaded dynamic library")
+    }
+}
+
+impl<'a> DynamicLibraryWriteGuardUnloaded<'a>{
+    fn load(mut self, new_lib: lib::Library) -> DynamicLibraryWriteGuard<'a>{
+        let old_lib = mem::replace(&mut (self.0).0, new_lib);
+        mem::forget(old_lib);
+        let guard = unsafe{ mem::replace(&mut self.0, mem::uninitialized()) };
+        mem::forget(self);
+        DynamicLibraryWriteGuard(guard)
+    }
+
+    fn reload(self) -> lib::Result<DynamicLibraryWriteGuard<'a>>{
+        let library = lib::Library::new((self.0).1.as_os_str())?;
+        Ok(self.load(library))
     }
 }
 
