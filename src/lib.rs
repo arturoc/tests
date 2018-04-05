@@ -2,13 +2,21 @@
 #![cfg_attr(feature = "unstable", feature(get_type_id))]
 
 extern crate rayon;
-extern crate fnv;
 extern crate boolinator;
+// extern crate fnv;
+extern crate fxhash;
 #[cfg(feature="stats_events")]
 extern crate seitan;
 
 #[cfg(feature = "bigint")]
 extern crate num;
+
+#[cfg(feature="dynamic_systems")]
+extern crate libloading;
+#[cfg(feature="dynamic_systems")]
+extern crate notify;
+#[cfg(feature="dynamic_systems")]
+extern crate tempfile;
 
 use sync::*;
 use storage::*;
@@ -52,6 +60,8 @@ mod oneton_densevec;
 mod oneton_forest;
 mod assoc_vec;
 mod hashmap;
+#[cfg(feature="dynamic_systems")]
+mod dynamic_system_loader;
 
 mod bitmask;
 

@@ -1,5 +1,3 @@
-use std::any::TypeId;
-
 use ::World;
 use ::UnorderedData;
 use ::UnorderedDataLocal;
@@ -60,7 +58,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
+        self.components_mask |= self.world.components_mask_index[&C::id()].clone();
         self
     }
 
@@ -73,7 +71,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
+        self.components_mask |= self.world.components_mask_index[&C::id()].clone();
         self
     }
 
@@ -87,7 +85,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
+        self.components_mask |= self.world.components_mask_index[&C::id()].clone();
         self
     }
 
@@ -101,7 +99,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
+        self.components_mask |= self.world.components_mask_index[&C::id()].clone();
         self
     }
 
@@ -114,7 +112,7 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
+        self.components_mask |= self.world.components_mask_index[&C::id()].clone();
         self
     }
 
@@ -127,14 +125,14 @@ impl<'a> EntityBuilder<'a>{
                 panic!("Trying to add component of type {} without registering first", C::type_name())
             }
         };
-        self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
+        self.components_mask |= self.world.components_mask_index[&C::id()].clone();
         self
     }
 
     pub fn add_hierarchy<C: HierarchicalOneToNComponentSync>(&mut self) -> HierarchyBuilder<C>{
         let storage = self.world.storage_mut::<C>();
         if let Some(storage) = storage{
-            self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
+            self.components_mask |= self.world.components_mask_index[&C::id()].clone();
             let storage = WriteGuardRef::new(WriteGuard::Sync(storage));
             HierarchyBuilder{
                 entity: self.guid,
@@ -148,7 +146,7 @@ impl<'a> EntityBuilder<'a>{
     pub fn add_hierarchy_thread_local<C: HierarchicalOneToNComponentThreadLocal>(&mut self) -> HierarchyBuilder<C>{
         let storage = self.world.storage_thread_local_mut::<C>();
         if let Some(storage) = storage{
-            self.components_mask |= self.world.components_mask_index[&TypeId::of::<C>()].clone();
+            self.components_mask |= self.world.components_mask_index[&C::id()].clone();
             HierarchyBuilder{
                 entity: self.guid,
                 storage

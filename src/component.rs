@@ -1,8 +1,29 @@
 use ::Storage;
 
+// #[cfg(not(feature="dynamic_systems"))]
+use std::any::TypeId;
+
+// #[cfg(not(feature="dynamic_systems"))]
+pub type Id = TypeId;
+
+// #[cfg(feature="dynamic_systems")]
+// pub type Id = String;
+
 pub trait Component: 'static + Sized {
     type Storage: for<'a> Storage<'a, Self>;
-    fn type_name() -> &'static str;
+    fn type_name() -> String;
+
+    // #[cfg(not(feature="dynamic_systems"))]
+    #[inline]
+    fn id() -> Id {
+        TypeId::of::<Self>()
+    }
+
+    // #[cfg(feature="dynamic_systems")]
+    // #[inline]
+    // fn id() -> String {
+    //     Self::type_name()
+    // }
 }
 
 pub trait ComponentSync: Component{}

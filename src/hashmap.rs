@@ -5,12 +5,12 @@ use storage::{Storage, IntoIter, IntoIterMut};
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 
 
-use fnv::FnvHashMap;
+use fxhash::FxHashMap as HashMap;
 use std::collections::hash_map::{Values, ValuesMut};
 use std::mem;
 
 pub struct HashMapStorage<T>{
-    storage: FnvHashMap<usize, T>
+    storage: HashMap<usize, T>
 }
 
 impl<'a, T: 'a> Storage<'a, T> for HashMapStorage<T>{
@@ -19,13 +19,13 @@ impl<'a, T: 'a> Storage<'a, T> for HashMapStorage<T>{
 
     fn new() -> HashMapStorage<T>{
         HashMapStorage{
-            storage: FnvHashMap::default(),
+            storage: HashMap::default(),
         }
     }
 
     fn with_capacity(capacity: usize) -> Self{
         HashMapStorage{
-            storage: FnvHashMap::with_capacity_and_hasher(capacity, Default::default()),
+            storage: HashMap::with_capacity_and_hasher(capacity, Default::default()),
         }
     }
 

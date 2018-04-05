@@ -1,5 +1,6 @@
 use std::any::{Any, TypeId};
-use std::collections::HashMap;
+// use std::collections::HashMap;
+use fxhash::FxHashMap as HashMap;
 use std::cell::{RefCell, Ref, RefMut, UnsafeCell};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -7,16 +8,17 @@ use std::slice;
 use std::mem;
 use std::u32;
 use std::thread;
+use ::System;
 
 use ::Entity;
-use component::{ComponentSync, Component, ComponentThreadLocal,
+use component::{self, ComponentSync, Component, ComponentThreadLocal,
     OneToNComponentSync, OneToNComponentThreadLocal};
 use storage::{Storage, HierarchicalStorage, OneToNStorage};
 use entity::{EntityBuilder, Entities, EntitiesThreadLocal};
 use sync::*;
 use rayon::prelude::*;
 use ::{Bitmask, MaskType, NextMask};
-
+use dynamic_system_loader::DynamicSystemLoader;
 
 #[cfg(feature="stats_events")]
 use seitan::*;
@@ -25,20 +27,20 @@ use std::time;
 
 
 pub struct World{
-    storages: HashMap<TypeId, Box<Any>>,
-    storages_thread_local: HashMap<TypeId, Box<Any>>,
+    storages: HashMap<component::Id, Box<Any>>,
+    storages_thread_local: HashMap<component::Id, Box<Any>>,
     resources: HashMap<TypeId, Box<Any>>,
 
     next_guid: AtomicUsize,
     entities: Vec<(Entity, ::MaskType)>, // Doesn't need lock cause never accesed mut from Entities?
     entities_index_per_mask: UnsafeCell<HashMap<Bitmask, RwLock<Vec<usize>>>>,
     entities_index_per_mask_guard: RwLock<()>,
-    ordered_entities_index_per_mask: RwLock<HashMap<TypeId, HashMap<Bitmask, Vec<usize>>>>,
-    reverse_components_mask_index: HashMap<MaskType, TypeId>,
+    ordered_entities_index_per_mask: RwLock<HashMap<component::Id, HashMap<Bitmask, Vec<usize>>>>,
+    reverse_components_mask_index: HashMap<MaskType, component::Id>,
     remove_components_mask_index: HashMap<MaskType, Box<Fn(&World, usize)>>,
 
     next_component_mask: NextMask,
-    pub(crate) components_mask_index: HashMap<TypeId, MaskType>,
+    pub(crate) components_mask_index: HashMap<component::Id, MaskType>,
 
 
     systems: Vec<(usize, String, SyncSystem)>,
@@ -51,6 +53,9 @@ pub struct World{
 
     #[cfg(feature="stats_events")]
     stats_events: HashMap<String, SenderRc<'static, time::Duration>>,
+
+    #[cfg(feature="dynamic_systems")]
+    dynamic_systems: DynamicSystemLoader,
 }
 
 unsafe impl Send for World{}
@@ -58,19 +63,19 @@ unsafe impl Send for World{}
 impl World{
     pub fn new() -> World{
         World{
-            storages: HashMap::new(),
-            storages_thread_local: HashMap::new(),
+            storages: HashMap::default(),
+            storages_thread_local: HashMap::default(),
 
-            resources: HashMap::new(),
+            resources: HashMap::default(),
             next_guid: AtomicUsize::new(0),
             next_component_mask: NextMask::new(),
             entities: Vec::new(),
-            components_mask_index: HashMap::new(),
+            components_mask_index: HashMap::default(),
             entities_index_per_mask_guard: RwLock::new(()),
-            entities_index_per_mask: UnsafeCell::new(HashMap::new()),
-            ordered_entities_index_per_mask: RwLock::new(HashMap::new()),
-            reverse_components_mask_index: HashMap::new(),
-            remove_components_mask_index: HashMap::new(),
+            entities_index_per_mask: UnsafeCell::new(HashMap::default()),
+            ordered_entities_index_per_mask: RwLock::new(HashMap::default()),
+            reverse_components_mask_index: HashMap::default(),
+            remove_components_mask_index: HashMap::default(),
             systems: vec![],
             systems_thread_local: vec![],
             barriers: vec![],
@@ -80,17 +85,25 @@ impl World{
             stats: Vec::new(),
 
             #[cfg(feature="stats_events")]
-            stats_events: HashMap::new(),
+            stats_events: HashMap::default(),
+
+            #[cfg(feature="dynamic_systems")]
+            dynamic_systems: DynamicSystemLoader::new().unwrap(),
         }
     }
 
     pub fn register<C: ComponentSync>(&mut self) {
-        let type_id = TypeId::of::<C>();
+        if self.storages.get(&C::id()).is_some(){
+            panic!("{} already registered or not unique component id", C::type_name());
+        }
+        if self.storages_thread_local.get(&C::id()).is_some(){
+            panic!("{} already registered or not unique component id", C::type_name());
+        }
         let storage = Box::new(RwLock::new(<C as Component>::Storage::new())) as Box<Any>;
         let next_mask = self.next_component_mask.next();
-        self.components_mask_index.insert(type_id, next_mask.clone());
-        self.reverse_components_mask_index.insert(next_mask.clone(), type_id);
-        self.storages.insert(type_id, storage);
+        self.components_mask_index.insert(C::id(), next_mask.clone());
+        self.reverse_components_mask_index.insert(next_mask.clone(), C::id());
+        self.storages.insert(C::id(), storage);
         self.remove_components_mask_index.insert(next_mask, Box::new(move |world, guid|{
             // let s: &RwLock<<C as ::Component>::Storage> = any.downcast_ref().unwrap();
             // s.write().unwrap().remove(guid)
@@ -102,12 +115,17 @@ impl World{
     }
 
     pub fn register_thread_local<C: ComponentThreadLocal>(&mut self) {
-        let type_id = TypeId::of::<C>();
         let storage = Box::new(RefCell::new(<C as Component>::Storage::new())) as Box<Any>;
+        if self.storages.get(&C::id()).is_some(){
+            panic!("{} already registered or not unique component id", C::type_name());
+        }
+        if self.storages_thread_local.get(&C::id()).is_some(){
+            panic!("{} already registered or not unique component id", C::type_name());
+        }
         let next_mask = self.next_component_mask.next();
-        self.components_mask_index.insert(type_id, next_mask.clone());
-        self.reverse_components_mask_index.insert(next_mask.clone(), type_id);
-        self.storages_thread_local.insert(type_id, storage);
+        self.components_mask_index.insert(C::id(), next_mask.clone());
+        self.reverse_components_mask_index.insert(next_mask.clone(), C::id());
+        self.storages_thread_local.insert(C::id(), storage);
         self.remove_components_mask_index.insert(next_mask, Box::new(move |world, guid|{
             //let s: &RefCell<<C as ::Component>::Storage> = any.downcast_ref().unwrap();
             //s.borrow_mut().remove(guid)
@@ -138,7 +156,7 @@ impl World{
             .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
             .insert(entity.guid(), component);
         let &mut (_entity, ref mut mask) = &mut self.entities[entity.guid()];
-        *mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
+        *mask |= self.components_mask_index[&C::id()].clone();
     }
 
     pub fn add_component_to_thread_local<C: ComponentThreadLocal>(&mut self, entity: &Entity, component: C){
@@ -147,7 +165,7 @@ impl World{
             .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
             .insert(entity.guid(), component);
         let &mut (_entity, ref mut mask) = &mut self.entities[entity.guid()];
-        *mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
+        *mask |= self.components_mask_index[&C::id()].clone();
     }
 
     pub fn add_slice_component_to<C: OneToNComponentSync>(&mut self, entity: &Entity, component: &[C]){
@@ -156,7 +174,7 @@ impl World{
             .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
             .insert_slice(entity.guid(), component);
         let &mut (_entity, ref mut mask) = &mut self.entities[entity.guid()];
-        *mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
+        *mask |= self.components_mask_index[&C::id()].clone();
     }
 
     pub fn add_slice_component_to_thread_local<C: OneToNComponentThreadLocal>(&mut self, entity: &Entity, component: &[C]){
@@ -165,18 +183,20 @@ impl World{
             .expect(&format!("Trying to add component of type {} without registering first", C::type_name()))
             .insert_slice(entity.guid(), component);
         let &mut (_entity, ref mut mask) = &mut self.entities[entity.guid()];
-        *mask |= self.components_mask_index[&TypeId::of::<C>()].clone();
+        *mask |= self.components_mask_index[&C::id()].clone();
     }
 
     pub fn remove_component_from<C: ::Component>(&mut self, entity: &::Entity){
         self.storage_mut::<C>()
             .expect(&format!("Trying to remove component of type {} without registering first", C::type_name()))
             .remove(entity.guid());
-        self.entities[entity.guid()].1 ^= self.components_mask_index[&TypeId::of::<C>()].clone();
+        self.entities[entity.guid()].1 ^= self.components_mask_index[&C::id()].clone();
         let mask = self.components_mask::<C>();
-        let type_id = self.reverse_components_mask_index[&mask];
-        if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(&type_id){
-            cache.clear();
+        {
+            let type_id = &self.reverse_components_mask_index[&mask];
+            if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(type_id){
+                cache.clear();
+            }
         }
         self.clear_entities_per_mask_index();
     }
@@ -193,8 +213,8 @@ impl World{
                 };
                 remove_component(self, entity.guid());
                 *entity_mask ^= mask.clone();
-                let type_id = self.reverse_components_mask_index[&mask];
-                if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(&type_id){
+                let type_id = &self.reverse_components_mask_index[&mask];
+                if let Some(cache) = self.ordered_entities_index_per_mask.write().unwrap().get_mut(type_id){
                     cache.clear();
                 }
             }
@@ -305,6 +325,26 @@ impl World{
         self
     }
 
+    #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_system(&mut self, system_path: &str) -> &mut World{
+        let system = self.dynamic_systems.new_system(system_path).unwrap();
+        self.add_system(system)
+    }
+
+    #[cfg(feature="dynamic_systems")]
+    pub fn run_dynamic_system_once(&mut self, system_path: &str) -> &mut World{
+        let mut system = self.dynamic_systems.new_system(system_path).unwrap();
+        system.run(self.entities(), self.resources());
+        self
+    }
+
+    #[cfg(feature="stats_events")]
+    #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_system_with_stats(&mut self, system_path: &str, name: &str) -> &mut World{
+        let system = self.dynamic_systems.new_system(system_path).unwrap();
+        self.add_system_with_stats(system, name)
+    }
+
     #[cfg(feature="stats_events")]
     pub fn stats(&mut self) -> Vec<(String, Property<'static, time::Duration>)>{
         self.stats_events.iter_mut()
@@ -317,6 +357,11 @@ impl World{
         let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
         self.barriers.push(prio);
         self
+    }
+
+    #[cfg(feature="dynamic_systems")]
+    pub fn start_dynamic_systems_watch(&mut self) -> Result<(), String>{
+        self.dynamic_systems.start()
     }
 
     pub fn run_once(&mut self){
@@ -538,21 +583,21 @@ impl World{
     }
 
     pub(crate) fn storage<C: ::Component>(&self) -> Option<RwLockReadGuard<<C as ::Component>::Storage>> {
-        self.storages.get(&TypeId::of::<C>()).map(|s| {
+        self.storages.get(&C::id()).map(|s| {
             let s: &RwLock<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
             s.read().unwrap()
         })
     }
 
     pub(crate) fn storage_mut<C: ::Component>(&self) -> Option<RwLockWriteGuard<<C as ::Component>::Storage>> {
-        self.storages.get(&TypeId::of::<C>()).map(|s| {
+        self.storages.get(&C::id()).map(|s| {
             let s: &RwLock<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
             s.write().unwrap()
         })
     }
 
     pub(crate) fn storage_thread_local<C: ::Component>(&self) -> Option<ReadGuardRef<<C as ::Component>::Storage>> {
-        let local = self.storages_thread_local.get(&TypeId::of::<C>()).map(|s| {
+        let local = self.storages_thread_local.get(&C::id()).map(|s| {
             let s: &RefCell<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
             ReadGuard::ThreadLocal(s.borrow())
         });
@@ -564,7 +609,7 @@ impl World{
     }
 
     pub(crate) fn storage_thread_local_mut<C: ::Component>(&self) -> Option<WriteGuardRef<<C as ::Component>::Storage>> {
-        let local = self.storages_thread_local.get(&TypeId::of::<C>()).map(|s| {
+        let local = self.storages_thread_local.get(&C::id()).map(|s| {
             let s: &RefCell<<C as ::Component>::Storage> = s.downcast_ref().unwrap();
             WriteGuard::ThreadLocal(s.borrow_mut())
         });
@@ -576,7 +621,7 @@ impl World{
     }
 
     pub(crate) fn components_mask<C: ::Component>(&self) -> MaskType{
-        self.components_mask_index.get(&TypeId::of::<C>())
+        self.components_mask_index.get(&C::id())
             .expect(&format!("Trying to use component {} before registering", C::type_name()))
             .clone()
     }
@@ -618,8 +663,8 @@ impl World{
     {
         if !self.ordered_entities_index_per_mask.write()
             .unwrap()
-            .entry(TypeId::of::<<C as ::Component>::Storage>())
-            .or_insert_with(|| HashMap::new())
+            .entry(C::id())
+            .or_insert_with(|| HashMap::default())
             .contains_key(&mask){
             let entities = self.storage::<C>()
                     .expect(&format!("Trying to use non registered type {}", C::type_name()))
@@ -652,8 +697,8 @@ impl World{
     {
         if !self.ordered_entities_index_per_mask.write()
             .unwrap()
-            .entry(TypeId::of::<<C as ::Component>::Storage>())
-            .or_insert_with(|| HashMap::new())
+            .entry(C::id())
+            .or_insert_with(|| HashMap::default())
             .contains_key(&mask){
 
             let entities = self.storage::<C>()

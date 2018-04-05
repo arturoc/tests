@@ -7,10 +7,16 @@ authors = ["arturo castro <arturo@openframeworks.cc>"]
 unstable=[]
 bigint=["num"]
 stats_events=["seitan"]
+dynamic_systems=["libloading", "notify", "tempfile"]
+default=["dynamic_systems"]
 
 [dependencies]
 rayon = "*"
-fnv = "*"
 boolinator = "*"
 num = { version = "*", optional = true }
 seitan = { path="../seitan-rs", optional = true }
+libloading = {version = "*", optional = true }
+notify = {version = "*", optional = true}
+tempfile = {version = "*", optional = true}
+# fnv = "*"
+fxhash = "*"
