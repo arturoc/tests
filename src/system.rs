@@ -38,6 +38,44 @@ impl<'a, F: FnMut(::Entities<'a>)> SystemEntities<'a> for F{
     }
 }
 
+pub trait SystemWithSettings: for<'a> System<'a> + for<'a> SystemSettingsReturn<'a>{
+    type Settings;
+    fn new(settings: Self::Settings) -> Self;
+    fn from_boxed_settings(settings: Box<Self::Settings>) -> Box<for<'a> SystemSettingsReturn<'a>>;
+    fn settings(&self) -> Self::Settings;
+}
+
+pub trait SystemSettingsReturn<'a>: System<'a>{
+    fn settings_boxed(&self) -> Box<::std::os::raw::c_void>;
+}
+
+impl<'a, S: SystemWithSettings> SystemSettingsReturn<'a> for S{
+    fn settings_boxed(&self) -> Box<::std::os::raw::c_void>{
+        unsafe{
+            Box::from_raw(Box::into_raw(Box::new(self.settings())) as *mut ::std::os::raw::c_void)
+        }
+    }
+}
+
+pub trait SystemWithSettingsThreadLocal: for<'a> SystemThreadLocal<'a> + for<'a> SystemSettingsReturn<'a>{
+    type Settings;
+    fn new(settings: Self::Settings) -> Self;
+    fn from_boxed_settings(settings: Box<Self::Settings>) -> Box<for<'a> SystemSettingsReturnThreadLocal<'a>>;
+    fn settings(&self) -> Self::Settings;
+}
+
+pub trait SystemSettingsReturnThreadLocal<'a>: SystemThreadLocal<'a>{
+    fn settings_boxed(&self) -> Box<::std::os::raw::c_void>;
+}
+
+impl<'a, S: SystemWithSettingsThreadLocal> SystemSettingsReturnThreadLocal<'a> for S{
+    fn settings_boxed(&self) -> Box<::std::os::raw::c_void>{
+        unsafe{
+            Box::from_raw(Box::into_raw(Box::new(self.settings())) as *mut ::std::os::raw::c_void)
+        }
+    }
+}
+
 
 // #[cfg(feature="dynamic_systems")]
 // mod dynamic_system {

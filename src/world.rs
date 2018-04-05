@@ -9,6 +9,7 @@ use std::mem;
 use std::u32;
 use std::thread;
 use ::System;
+use ::SystemWithSettings;
 
 use ::Entity;
 use component::{self, ComponentSync, Component, ComponentThreadLocal,
@@ -328,6 +329,12 @@ impl World{
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system(&mut self, system_path: &str) -> &mut World{
         let system = self.dynamic_systems.new_system(system_path).unwrap();
+        self.add_system(system)
+    }
+
+    #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_system_from_settings<S>(&mut self, system_path: &str, settings: S) -> &mut World{
+        let system = self.dynamic_systems.new_system_from_settings(system_path, settings).unwrap();
         self.add_system(system)
     }
 
