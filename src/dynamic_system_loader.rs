@@ -7,9 +7,11 @@ use libloading::os::unix as libimp;
 use libloading::os::windows as libimp;
 use notify::{self, Watcher};
 
-use system::{System, SystemWithSettings, SystemSettingsReturn};
+use system::{System, SystemSettingsReturn, SystemSettingsReturnThreadLocal, SystemThreadLocal};
 use ::Entities;
 use ::Resources;
+use ::EntitiesThreadLocal;
+use ::ResourcesThreadLocal;
 
 use std::process::Command;
 use std::error::Error;
@@ -33,18 +35,37 @@ struct SystemPath{
 }
 
 impl SystemPath{
+    fn new(system_path: &str) -> Result<SystemPath, String>{
+        let mut system_parts = system_path.split("::");
+        let lib_name = system_parts.next().expect("Empty system path");
+        let system_name = system_parts.next()
+            .expect(&format!("Can't find system in path with onlyread().unwrap(). one part {}, system paths have to be specified as library::system", system_path));
+        if system_parts.next().is_none() {
+            Ok(SystemPath{
+                library: lib_name.to_owned(),
+                system: system_name.to_owned(),
+            })
+        }else{
+            Err("System path has more than two elements, correct format is: library::system".to_string())
+        }
+    }
+
     fn constructor_name(&self) -> String{
-        self.library.clone() + "::" + &self.system + "::from_boxed_settings"
+        self.system.clone() + "::from_boxed_settings"
     }
 }
 
 struct Data{
     libraries: HashMap<PathBuf, DynamicLibrary>,
     systems: HashMap<SystemPath, DynamicSystem>,
+    systems_thread_local: HashMap<SystemPath, DynamicSystemThreadLocal>,
     systems_with_settings: HashMap<SystemPath, DynamicSystemWithSettings>,
+    systems_with_settings_thread_local: HashMap<SystemPath, DynamicSystemWithSettingsThreadLocal>,
     library_names_index: HashMap<PathBuf, String>, //TODO: this can probably be a vector or use src path as index instead
     systems_per_library: HashMap<PathBuf, Vec<SystemPath>>,
+    systems_per_library_thread_local: HashMap<PathBuf, Vec<SystemPath>>,
     systems_with_settings_per_library: HashMap<PathBuf, Vec<SystemPath>>,
+    systems_with_settings_per_library_thread_local: HashMap<PathBuf, Vec<SystemPath>>,
     source_rx: Receiver<notify::DebouncedEvent>,
     source_watcher: notify::RecommendedWatcher,
     libs_rx: Receiver<notify::DebouncedEvent>,
@@ -76,10 +97,22 @@ impl DynamicSystemLoader{
             .new_system(system_path)
     }
 
+    pub fn new_system_thread_local(&mut self, system_path: &str) -> Result<DynamicSystemThreadLocal, String>{
+        self.data.lock()
+            .map_err(|e| format!("Couldn't lock dynamic system loader: {}", e.description()))?
+            .new_system_thread_local(system_path)
+    }
+
     pub fn new_system_from_settings<S>(&mut self, system_path: &str, settings: S) -> Result<DynamicSystemWithSettings, String>{
         self.data.lock()
             .map_err(|e| format!("Couldn't lock dynamic system loader: {}", e.description()))?
             .new_system_from_settings(system_path, settings)
+    }
+
+    pub fn new_system_from_settings_thread_local<S>(&mut self, system_path: &str, settings: S) -> Result<DynamicSystemWithSettingsThreadLocal, String>{
+        self.data.lock()
+            .map_err(|e| format!("Couldn't lock dynamic system loader: {}", e.description()))?
+            .new_system_from_settings_thread_local(system_path, settings)
     }
 
     pub fn start(&mut self) -> Result<(), String>{
@@ -88,10 +121,26 @@ impl DynamicSystemLoader{
             .start()
     }
 
-    fn recompile(library: &str) {
-        println!("Recompiling {:?}", library);
+    pub fn preload_libraries(&mut self, libs: &[&str]) -> Result<(), String>{
+        self.data.lock()
+            .map_err(|e| format!("Couldn't lock dynamic system loader: {}", e.description()))?
+            .preload_libraries(libs)
+    }
+
+    fn recompile(libraries: &[&str]) {
+        println!("Recompiling {:?}", libraries);
+
+        let mut args = vec!["build"];
+        #[cfg(not(debug_assertions))]
+        args.push("--release");
+
+        for library in libraries {
+            args.push("-p");
+            args.push(library);
+        }
+
         match Command::new("cargo")
-            .args(&["build", "--release", "-p", library])
+            .args(&args)
             .output()
         {
             Ok(output) => {
@@ -121,19 +170,23 @@ impl DynamicSystemLoader{
                         let library = data.library_names_index
                             .iter()
                             .map(|(_, lib_name)| {
-                                let mut source_path = current_dir().unwrap();
-                                source_path.push("src");
-                                source_path.push(lib_name);
-                                (source_path, lib_name)
+                                let mut source_path1 = current_dir().unwrap();
+                                source_path1.push("src");
+                                source_path1.push(lib_name);
+                                let mut source_path2 = current_dir().unwrap();
+                                source_path2.push("src");
+                                source_path2.push("systems");
+                                source_path2.push(lib_name);
+                                (source_path1, source_path2, lib_name)
                             })
-                            .find(|&(ref source_path, _lib_name)| {
-                                lib_path.starts_with(source_path)
+                            .find(|&(ref source_path1, ref source_path2, _lib_name)| {
+                                lib_path.starts_with(source_path1) || lib_path.starts_with(source_path2)
                             })
-                            .map(|(_, lib_name)|{
+                            .map(|(_, _, lib_name)|{
                                 lib_name
                             })
                             .unwrap();
-                        DynamicSystemLoader::recompile(library);
+                        DynamicSystemLoader::recompile(&[library]);
                     }
 
                     _ => println!("System notify, other event"),
@@ -146,6 +199,9 @@ impl DynamicSystemLoader{
             let systems_with_settings_per_library = unsafe{ mem::transmute::<
                 &mut HashMap<PathBuf, Vec<SystemPath>>,
                 &mut HashMap<PathBuf, Vec<SystemPath>>>(&mut data.systems_with_settings_per_library)};
+            let systems_with_settings_per_library_thread_local = unsafe{ mem::transmute::<
+                &mut HashMap<PathBuf, Vec<SystemPath>>,
+                &mut HashMap<PathBuf, Vec<SystemPath>>>(&mut data.systems_with_settings_per_library_thread_local)};
             let libraries = unsafe{ mem::transmute::<
                 &mut HashMap<PathBuf, DynamicLibrary>,
                 &mut HashMap<PathBuf, DynamicLibrary>>(&mut data.libraries) };
@@ -155,6 +211,9 @@ impl DynamicSystemLoader{
             let data_systems_with_settings = unsafe{ mem::transmute::<
                 &mut HashMap<SystemPath, DynamicSystemWithSettings>,
                 &mut HashMap<SystemPath, DynamicSystemWithSettings>>(&mut data.systems_with_settings) };
+            let data_systems_with_settings_thread_local = unsafe{ mem::transmute::<
+                &mut HashMap<SystemPath, DynamicSystemWithSettingsThreadLocal>,
+                &mut HashMap<SystemPath, DynamicSystemWithSettingsThreadLocal>>(&mut data.systems_with_settings_thread_local) };
             for e in data.libs_rx.try_iter() {
                 match e {
                     notify::DebouncedEvent::Write(lib_path) |
@@ -175,6 +234,20 @@ impl DynamicSystemLoader{
                             if let Some(systems) = systems_with_settings_per_library.get_mut(lib_path){
                                 for system in systems {
                                     unsafe{ data_systems_with_settings.get_mut(system).unwrap().unload(); }
+                                }
+                            }
+
+                            // Recover settings from old systems
+                            let settings_thread_local = systems_with_settings_per_library_thread_local.get_mut(lib_path)
+                                .map(|systems| systems.iter().map(|s|
+                                    data_systems_with_settings_thread_local.get_mut(s).unwrap().settings_boxed()
+                                ).collect::<Vec<_>>())
+                                .unwrap_or_else(|| vec![]);
+
+                            // Unload associated systems with settings
+                            if let Some(systems) = systems_with_settings_per_library_thread_local.get_mut(lib_path){
+                                for system in systems {
+                                    unsafe{ data_systems_with_settings_thread_local.get_mut(system).unwrap().unload(); }
                                 }
                             }
 
@@ -207,6 +280,22 @@ impl DynamicSystemLoader{
                                             let system = constructor(settings);
                                             println!("{}::{} reloaded with constructor {}", system_path.library, system_path.system, constructor_name);
                                             data_systems_with_settings.get_mut(system_path).unwrap().set(system);
+                                        }else{
+                                            println!("Error: {:?} reloaded but couldn't find system constructor {}", lib_path, system_path.system);
+                                        }
+                                    }
+                                }
+
+                                if let Some(systems) = systems_with_settings_per_library_thread_local.get_mut(lib_path){
+                                    println!("Reloading {:?} {:?}", lib_path, systems);
+                                    for (system_path, settings) in systems.into_iter().zip(settings_thread_local.into_iter()) {
+                                        let constructor_name = system_path.constructor_name();
+                                        let constructor: Result<libimp::Symbol<fn(Box<::std::os::raw::c_void>) -> Box<for<'a> SystemSettingsReturnThreadLocal<'a>>>, _> =
+                                            unsafe{ new_library.get(constructor_name.as_bytes()) };
+                                        if let Ok(constructor) = constructor {
+                                            let system = constructor(settings);
+                                            println!("{}::{} reloaded with constructor {}", system_path.library, system_path.system, constructor_name);
+                                            data_systems_with_settings_thread_local.get_mut(system_path).unwrap().set(system);
                                         }else{
                                             println!("Error: {:?} reloaded but couldn't find system constructor {}", lib_path, system_path.system);
                                         }
@@ -258,10 +347,14 @@ impl Data{
         Ok(Data{
             libraries: HashMap::default(),
             systems: HashMap::default(),
+            systems_thread_local: HashMap::default(),
             systems_with_settings: HashMap::default(),
+            systems_with_settings_thread_local: HashMap::default(),
             library_names_index: HashMap::default(),
             systems_per_library: HashMap::default(),
+            systems_per_library_thread_local: HashMap::default(),
             systems_with_settings_per_library: HashMap::default(),
+            systems_with_settings_per_library_thread_local: HashMap::default(),
             source_watcher,
             libs_watcher,
             source_rx,
@@ -286,33 +379,42 @@ impl Data{
             .map_err(|e| format!("Error adding lib watch for {:?}: {}", lib_path, e.description()))
     }
 
-    fn new_system(&mut self, system_path: &str) -> Result<DynamicSystem, String>{
-
-        let mut system_parts = system_path.split("::");
-        let lib_name = system_parts.next().expect("Empty system path");
-        let system_name = system_parts.next()
-            .expect(&format!("Can't find system in path with only one part {}, system paths have to be specified as library::system", system_path));
-        assert_eq!(system_parts.next(), None);
-
-        let system_path = SystemPath{
-            library: lib_name.to_owned(),
-            system: system_name.to_owned(),
-        };
-
-        if let Some(system) = self.systems.get(&system_path) {
-            return Ok(system.clone());
-        }
-
-        let lib_file = "lib".to_owned() + lib_name + ".so";
+    fn library_path(library: &str) -> PathBuf {
+        let lib_file = "lib".to_owned() + library + ".so";
         let mut lib_path = PathBuf::from("target");
+        #[cfg(not(debug_assertions))]
         lib_path.push("release");
+        #[cfg(debug_assertions)]
+        lib_path.push("debug");
         lib_path.push(&lib_file);
+        lib_path
+    }
+
+    pub fn preload_libraries(&mut self, libs: &[&str]) -> Result<(), String>{
+        DynamicSystemLoader::recompile(libs);
+        for library in libs {
+            let lib_path = Self::library_path(library);
+            match self.libraries.entry(lib_path.clone()){
+                Entry::Occupied(lib) => (),
+                Entry::Vacant(vacant) => {
+                    let library = DynamicLibrary(
+                        Arc::new(RwLock::new(temporary_library(&lib_path)?))
+                    );
+                    vacant.insert(library);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn load_library(&mut self, library: &str) -> Result<DynamicLibrary, String>{
+        let lib_path = Self::library_path(library);
 
         let library = match self.libraries.entry(lib_path.clone()){
             Entry::Occupied(lib) => lib.into_mut(),
             Entry::Vacant(vacant) => {
                 // Recompile library before first use to ensure that it's up to date
-                DynamicSystemLoader::recompile(lib_name);
+                DynamicSystemLoader::recompile(&[library]);
 
                 let library = DynamicLibrary(
                     Arc::new(RwLock::new(temporary_library(&lib_path)?))
@@ -321,14 +423,42 @@ impl Data{
             }
         };
 
-        let system: libimp::Symbol<fn(Entities, Resources)> = unsafe{
-            library.read().unwrap().get(system_name.as_bytes())
-                .map_err(|e| format!("Error loading symbol from {}::{}: {}", system_path.library, system_path.system, e.description()))?
-        };
-        let system = DynamicSystem{
-            library: library.clone(),
-            system: Arc::new(UnsafeCell::new(Box::new(system))),
-        };
+        Ok(library.clone())
+    }
+
+    fn watch_source(&mut self, system_path: &SystemPath) -> Result<(), String>{
+        let mut source_path = PathBuf::from("src");
+        source_path.push(&system_path.library);
+        if source_path.exists() {
+            self.source_watcher.watch(&source_path, notify::RecursiveMode::Recursive)
+                .map_err(|e| format!("Error adding source watch for {:?}: {}", source_path, e.description()))?;
+        }else{
+            let mut source_path = PathBuf::from("src");
+            source_path.push("systems");
+            source_path.push(&system_path.library);
+            if source_path.exists() {
+                self.source_watcher.watch(&source_path, notify::RecursiveMode::Recursive)
+                    .map_err(|e| format!("Error adding source watch for {:?}: {}", source_path, e.description()))?;
+            }else{
+                println!("Error: couldn't find source for dynamic system {:?}", source_path) // TODO: Panic?
+            }
+        }
+        Ok(())
+    }
+
+    fn new_system(&mut self, system_path: &str) -> Result<DynamicSystem, String>{
+        let system_path = SystemPath::new(system_path)?;
+        let lib_name = &system_path.library;
+
+        if let Some(system) = self.systems.get(&system_path) {
+            return Ok(system.clone());
+        }
+
+        let library = self.load_library(&system_path.library)?;
+        let lib_path = Self::library_path(&system_path.library);
+
+        let system = library.load_system(&system_path)?;
+
         self.systems.insert(system_path.clone(), system.clone());
 
         self.library_names_index.entry(lib_path.clone())
@@ -338,69 +468,51 @@ impl Data{
             .or_insert(vec![])
             .push(system_path.clone());
 
-        let mut source_path = PathBuf::from("src");
-        source_path.push(lib_name);
-        if source_path.exists() {
-            self.source_watcher.watch(&source_path, notify::RecursiveMode::Recursive)
-                .map_err(|e| format!("Error adding source watch for {:?}: {}", source_path, e.description()))?;
-        }else{
-            let mut source_path = PathBuf::from("src");
-            source_path.push("systems");
-            source_path.push(lib_name);
-            if source_path.exists() {
-                self.source_watcher.watch(&source_path, notify::RecursiveMode::Recursive)
-                    .map_err(|e| format!("Error adding source watch for {:?}: {}", source_path, e.description()))?;
-            }else{
-                println!("Error: couldn't find source for dynamic system {:?}", source_path) // TODO: Panic?
-            }
+        self.watch_source(&system_path)?;
+
+        Ok(system)
+    }
+
+    fn new_system_thread_local(&mut self, system_path: &str) -> Result<DynamicSystemThreadLocal, String>{
+        let system_path = SystemPath::new(system_path)?;
+        let lib_name = &system_path.library;
+
+        if let Some(system) = self.systems_thread_local.get(&system_path) {
+            return Ok(system.clone());
         }
+
+        let library = self.load_library(&system_path.library)?;
+        let lib_path = Self::library_path(&system_path.library);
+
+        let system = library.load_system_thread_local(&system_path)?;
+
+        self.systems_thread_local.insert(system_path.clone(), system.clone());
+
+        self.library_names_index.entry(lib_path.clone())
+            .or_insert(lib_name.to_owned());
+
+        self.systems_per_library_thread_local.entry(lib_path.clone())
+            .or_insert(vec![])
+            .push(system_path.clone());
+
+        self.watch_source(&system_path)?;
+
         Ok(system)
     }
 
     fn new_system_from_settings<S>(&mut self, system_path: &str, settings: S) -> Result<DynamicSystemWithSettings, String>{
-        let mut system_parts = system_path.split("::");
-        let lib_name = system_parts.next().expect("Empty system path");
-        let system_name = system_parts.next()
-            .expect(&format!("Can't find system in path with only one part {}, system paths have to be specified as library::system", system_path));
-        assert_eq!(system_parts.next(), None);
-
-        let system_path = SystemPath{
-            library: lib_name.to_owned(),
-            system: system_name.to_owned(),
-        };
+        let system_path = SystemPath::new(system_path)?;
+        let lib_name = &system_path.library;
 
         if let Some(system) = self.systems_with_settings.get(&system_path) {
             return Ok(system.clone());
         }
 
-        let lib_file = "lib".to_owned() + lib_name + ".so";
-        let mut lib_path = PathBuf::from("target");
-        lib_path.push("release");
-        lib_path.push(&lib_file);
+        let library = self.load_library(&system_path.library)?;
+        let lib_path = Self::library_path(&system_path.library);
 
-        let library = match self.libraries.entry(lib_path.clone()){
-            Entry::Occupied(lib) => lib.into_mut(),
-            Entry::Vacant(vacant) => {
-                // Recompile library before first use to ensure that it's up to date
-                DynamicSystemLoader::recompile(lib_name);
+        let system = library.load_system_with_settings(&system_path, settings)?;
 
-                let library = DynamicLibrary(
-                    Arc::new(RwLock::new(temporary_library(&lib_path)?))
-                );
-                vacant.insert(library)
-            }
-        };
-
-        let system = unsafe{
-            let lib = library.read().unwrap();
-            let constructor: libimp::Symbol<fn(Box<S>) -> Box<for<'a> SystemSettingsReturn<'a>>> = lib.get(system_path.constructor_name().as_bytes())
-                .map_err(|e| format!("Error loading constructor symbol from {}::{}: {}", system_path.library, system_path.system, e.description()))?;
-            constructor(Box::new(settings))
-        };
-        let system = DynamicSystemWithSettings{
-            library: library.clone(),
-            system: Arc::new(UnsafeCell::new(system)),
-        };
         self.systems_with_settings.insert(system_path.clone(), system.clone());
 
         self.library_names_index.entry(lib_path.clone())
@@ -410,22 +522,36 @@ impl Data{
             .or_insert(vec![])
             .push(system_path.clone());
 
-        let mut source_path = PathBuf::from("src");
-        source_path.push(lib_name);
-        if source_path.exists() {
-            self.source_watcher.watch(&source_path, notify::RecursiveMode::Recursive)
-                .map_err(|e| format!("Error adding source watch for {:?}: {}", source_path, e.description()))?;
-        }else{
-            let mut source_path = PathBuf::from("src");
-            source_path.push("systems");
-            source_path.push(lib_name);
-            if source_path.exists() {
-                self.source_watcher.watch(&source_path, notify::RecursiveMode::Recursive)
-                    .map_err(|e| format!("Error adding source watch for {:?}: {}", source_path, e.description()))?;
-            }else{
-                println!("Error: couldn't find source for dynamic system {:?}", source_path) // TODO: Panic?
-            }
+        self.watch_source(&system_path)?;
+
+        Ok(system)
+    }
+
+
+    fn new_system_from_settings_thread_local<S>(&mut self, system_path: &str, settings: S) -> Result<DynamicSystemWithSettingsThreadLocal, String>{
+        let system_path = SystemPath::new(system_path)?;
+        let lib_name = &system_path.library;
+
+        if let Some(system) = self.systems_with_settings_thread_local.get(&system_path) {
+            return Ok(system.clone());
         }
+
+        let library = self.load_library(&system_path.library)?;
+        let lib_path = Self::library_path(&system_path.library);
+
+        let system = library.load_system_with_settings_thread_local(&system_path, settings)?;
+
+        self.systems_with_settings_thread_local.insert(system_path.clone(), system.clone());
+
+        self.library_names_index.entry(lib_path.clone())
+            .or_insert(lib_name.to_owned());
+
+        self.systems_with_settings_per_library_thread_local.entry(lib_path.clone())
+            .or_insert(vec![])
+            .push(system_path.clone());
+
+        self.watch_source(&system_path)?;
+
         Ok(system)
     }
 }
@@ -477,6 +603,55 @@ impl DynamicSystemWithSettings{
 
 unsafe impl Send for DynamicSystemWithSettings{}
 
+
+
+#[derive(Clone)]
+pub struct DynamicSystemThreadLocal{
+    library: DynamicLibrary,
+    system: Arc<UnsafeCell<Box<for<'a> SystemThreadLocal<'a>>>> // TODO: do we need a mutex here?
+                                                // probably only if we allow to run the
+                                                // system from outside the world
+}
+
+impl DynamicSystemThreadLocal{
+    fn set<S: 'static + for<'a> SystemThreadLocal<'a>>(&mut self, system: S){
+        unsafe{
+            let old_system = mem::replace(&mut *self.system.get(), Box::new(system));
+            mem::forget(old_system);
+        }
+    }
+}
+
+unsafe impl Send for DynamicSystemThreadLocal{}
+
+#[derive(Clone)]
+pub struct DynamicSystemWithSettingsThreadLocal{
+    library: DynamicLibrary,
+    system: Arc<UnsafeCell<Box<for<'a> SystemSettingsReturnThreadLocal<'a>>>> // TODO: do we need a mutex here?
+                                                // probably only if we allow to run the
+                                                // system from outside the world
+}
+
+impl DynamicSystemWithSettingsThreadLocal{
+    unsafe fn unload(&mut self){//TODO: similar system to libraries where we unload the system then load it?
+        let old_system = mem::replace(&mut *self.system.get(), mem::uninitialized());
+        mem::forget(old_system);
+    }
+
+    fn set(&mut self, system: Box<for<'a> SystemSettingsReturnThreadLocal<'a>>){
+        unsafe{
+            let old_system = mem::replace(&mut *self.system.get(), system);
+            mem::forget(old_system);
+        }
+    }
+
+    fn settings_boxed(&mut self) -> Box<::std::os::raw::c_void>{
+        unsafe{ (*self.system.get()).settings_boxed() }
+    }
+}
+
+unsafe impl Send for DynamicSystemWithSettingsThreadLocal{}
+
 #[derive(Clone)]
 struct DynamicLibrary(Arc<RwLock<(lib::Library, tempfile::TempPath)>>);
 
@@ -491,6 +666,56 @@ impl DynamicLibrary{
 
     fn write(&self) -> Result<DynamicLibraryWriteGuard, PoisonError<RwLockWriteGuard<(lib::Library, tempfile::TempPath)>>>{
         self.0.write().map(|g| DynamicLibraryWriteGuard(g) )
+    }
+
+    fn load_system(&self, system_path: &SystemPath) -> Result<DynamicSystem, String>{
+        let system: libimp::Symbol<fn(Entities, Resources)> = unsafe{
+            self.read().unwrap().get(system_path.system.as_bytes())
+                .map_err(|e| format!("Error loading symbol from {}::{}: {}", system_path.library, system_path.system, e.description()))?
+        };
+        Ok(DynamicSystem{
+            library: self.clone(),
+            system: Arc::new(UnsafeCell::new(Box::new(system))),
+        })
+    }
+
+    fn load_system_thread_local(&self, system_path: &SystemPath) -> Result<DynamicSystemThreadLocal, String>{
+        let system: libimp::Symbol<fn(EntitiesThreadLocal, ResourcesThreadLocal)> = unsafe{
+            self.read().unwrap().get(system_path.system.as_bytes())
+                .map_err(|e| format!("Error loading symbol from {}::{}: {}", system_path.library, system_path.system, e.description()))?
+        };
+        Ok(DynamicSystemThreadLocal{
+            library: self.clone(),
+            system: Arc::new(UnsafeCell::new(Box::new(system))),
+        })
+    }
+
+    fn load_system_with_settings<S>(&self, system_path: &SystemPath, settings: S) -> Result<DynamicSystemWithSettings, String>{
+        let system = unsafe{
+            let lib = self.read().unwrap();
+            let constructor: libimp::Symbol<fn(Box<S>) -> Box<for<'a> SystemSettingsReturn<'a>>> = lib.get(system_path.constructor_name().as_bytes())
+                .map_err(|e| format!("Error loading constructor symbol from {}::{}: {}", system_path.library, system_path.system, e.description()))?;
+            constructor(Box::new(settings))
+        };
+        Ok(DynamicSystemWithSettings{
+            library: self.clone(),
+            system: Arc::new(UnsafeCell::new(system)),
+        })
+    }
+
+
+
+    fn load_system_with_settings_thread_local<S>(&self, system_path: &SystemPath, settings: S) -> Result<DynamicSystemWithSettingsThreadLocal, String>{
+        let system = unsafe{
+            let lib = self.read().unwrap();
+            let constructor: libimp::Symbol<fn(Box<S>) -> Box<for<'a> SystemSettingsReturnThreadLocal<'a>>> = lib.get(system_path.constructor_name().as_bytes())
+                .map_err(|e| format!("Error loading constructor symbol from {}::{}: {}", system_path.library, system_path.system, e.description()))?;
+            constructor(Box::new(settings))
+        };
+        Ok(DynamicSystemWithSettingsThreadLocal{
+            library: self.clone(),
+            system: Arc::new(UnsafeCell::new(system)),
+        })
     }
 }
 
@@ -567,8 +792,29 @@ impl<'a> System<'a> for DynamicSystemWithSettings{
     }
 }
 
+impl<'a> SystemThreadLocal<'a> for DynamicSystemThreadLocal{
+    fn run(&mut self, entities: EntitiesThreadLocal, resources: ResourcesThreadLocal) {
+        let _lib_lock = self.library.read().unwrap();
+        unsafe{(*self.system.get()).run(entities, resources)}
+    }
+}
+
+impl<'a> SystemThreadLocal<'a> for DynamicSystemWithSettingsThreadLocal{
+    fn run(&mut self, entities: EntitiesThreadLocal, resources: ResourcesThreadLocal) {
+        let _lib_lock = self.library.read().unwrap();
+        unsafe{(*self.system.get()).run(entities, resources)}
+    }
+}
+
 impl<'a> System<'a> for libimp::Symbol<fn(Entities, Resources)> {
     fn run(&mut self, entities: Entities, resources: Resources) {
+        self(entities, resources)
+    }
+}
+
+
+impl<'a> SystemThreadLocal<'a> for libimp::Symbol<fn(EntitiesThreadLocal, ResourcesThreadLocal)> {
+    fn run(&mut self, entities: EntitiesThreadLocal, resources: ResourcesThreadLocal) {
         self(entities, resources)
     }
 }

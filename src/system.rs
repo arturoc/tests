@@ -57,7 +57,7 @@ impl<'a, S: SystemWithSettings> SystemSettingsReturn<'a> for S{
     }
 }
 
-pub trait SystemWithSettingsThreadLocal: for<'a> SystemThreadLocal<'a> + for<'a> SystemSettingsReturn<'a>{
+pub trait SystemWithSettingsThreadLocal: for<'a> SystemThreadLocal<'a> + for<'a> SystemSettingsReturnThreadLocal<'a>{
     type Settings;
     fn new(settings: Self::Settings) -> Self;
     fn from_boxed_settings(settings: Box<Self::Settings>) -> Box<for<'a> SystemSettingsReturnThreadLocal<'a>>;

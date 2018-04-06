@@ -10,6 +10,7 @@ use std::u32;
 use std::thread;
 use ::System;
 use ::SystemWithSettings;
+use ::SystemThreadLocal;
 
 use ::Entity;
 use component::{self, ComponentSync, Component, ComponentThreadLocal,
@@ -327,9 +328,20 @@ impl World{
     }
 
     #[cfg(feature="dynamic_systems")]
+    pub fn preload_dynamic_libraries(&mut self, libs: &[&str]) -> Result<(), String> {
+        self.dynamic_systems.preload_libraries(libs)
+    }
+
+    #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system(&mut self, system_path: &str) -> &mut World{
         let system = self.dynamic_systems.new_system(system_path).unwrap();
         self.add_system(system)
+    }
+
+    #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_system_thread_local(&mut self, system_path: &str) -> &mut World{
+        let system = self.dynamic_systems.new_system_thread_local(system_path).unwrap();
+        self.add_system_thread_local(system)
     }
 
     #[cfg(feature="dynamic_systems")]
@@ -339,9 +351,22 @@ impl World{
     }
 
     #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_system_from_settings_thread_local<S>(&mut self, system_path: &str, settings: S) -> &mut World{
+        let system = self.dynamic_systems.new_system_from_settings_thread_local(system_path, settings).unwrap();
+        self.add_system_thread_local(system)
+    }
+
+    #[cfg(feature="dynamic_systems")]
     pub fn run_dynamic_system_once(&mut self, system_path: &str) -> &mut World{
         let mut system = self.dynamic_systems.new_system(system_path).unwrap();
         system.run(self.entities(), self.resources());
+        self
+    }
+
+    #[cfg(feature="dynamic_systems")]
+    pub fn run_dynamic_system_once_thread_local(&mut self, system_path: &str) -> &mut World{
+        let mut system = self.dynamic_systems.new_system_thread_local(system_path).unwrap();
+        system.run(self.entities_thread_local(), self.resources_thread_local());
         self
     }
 
@@ -350,6 +375,27 @@ impl World{
     pub fn new_dynamic_system_with_stats(&mut self, system_path: &str, name: &str) -> &mut World{
         let system = self.dynamic_systems.new_system(system_path).unwrap();
         self.add_system_with_stats(system, name)
+    }
+
+    #[cfg(feature="stats_events")]
+    #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_system_with_stats_thread_local(&mut self, system_path: &str, name: &str) -> &mut World{
+        let system = self.dynamic_systems.new_system_thread_local(system_path).unwrap();
+        self.add_system_with_stats_thread_local(system, name)
+    }
+
+    #[cfg(feature="stats_events")]
+    #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_system_from_settings_with_stats<S>(&mut self, system_path: &str, settings: S, name: &str) -> &mut World{
+        let system = self.dynamic_systems.new_system_from_settings(system_path, settings).unwrap();
+        self.add_system_with_stats(system, name)
+    }
+
+    #[cfg(feature="stats_events")]
+    #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_system_from_settings_with_stats_thread_local<S>(&mut self, system_path: &str, settings: S, name: &str) -> &mut World{
+        let system = self.dynamic_systems.new_system_from_settings_thread_local(system_path, settings).unwrap();
+        self.add_system_with_stats_thread_local(system, name)
     }
 
     #[cfg(feature="stats_events")]
