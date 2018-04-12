@@ -9,8 +9,8 @@ fn insert_read() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
@@ -45,8 +45,8 @@ fn insert_read_entities() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
@@ -90,8 +90,8 @@ fn insert_read_write() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
@@ -103,8 +103,8 @@ fn insert_read_write() {
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
-        fn type_name() -> &'static str{
-            "Vel"
+        fn type_name() -> String{
+            "Vel".to_owned()
         }
     }
 
@@ -155,15 +155,15 @@ fn insert_read_not() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
-        fn type_name() -> &'static str{
-            "Vel"
+        fn type_name() -> String{
+            "Vel".to_owned()
         }
     }
 
@@ -212,22 +212,22 @@ fn insert_readnot() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
-        fn type_name() -> &'static str{
-            "Vel"
+        fn type_name() -> String{
+            "Vel".to_owned()
         }
     }
 
     impl ::Component for Other{
         type Storage = ::DenseVec<Other>;
-        fn type_name() -> &'static str{
-            "Other"
+        fn type_name() -> String{
+            "Other".to_owned()
         }
     }
 
@@ -279,22 +279,22 @@ fn insert_reador() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
-        fn type_name() -> &'static str{
-            "Vel"
+        fn type_name() -> String{
+            "Vel".to_owned()
         }
     }
 
     impl ::Component for Other{
         type Storage = ::DenseVec<Other>;
-        fn type_name() -> &'static str{
-            "Other"
+        fn type_name() -> String{
+            "Other".to_owned()
         }
     }
 
@@ -345,15 +345,15 @@ fn insert_readoption() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
-        fn type_name() -> &'static str{
-            "Vel"
+        fn type_name() -> String{
+            "Vel".to_owned()
         }
     }
 
@@ -393,24 +393,24 @@ fn insert_read_write_parallel() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     struct C1;
     impl ::Component for C1{
         type Storage = ::DenseVec<C1>;
-        fn type_name() -> &'static str{
-            "C1"
+        fn type_name() -> String{
+            "C1".to_owned()
         }
     }
 
     struct C2;
     impl ::Component for C2{
         type Storage = ::DenseVec<C2>;
-        fn type_name() -> &'static str{
-            "C2"
+        fn type_name() -> String{
+            "C2".to_owned()
         }
     }
 
@@ -422,8 +422,8 @@ fn insert_read_write_parallel() {
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
-        fn type_name() -> &'static str{
-            "Vel"
+        fn type_name() -> String{
+            "Vel".to_owned()
         }
     }
 
@@ -489,8 +489,8 @@ fn hierarchical_insert_read() {
 
     impl ::Component for Pos{
         type Storage = ::Forest<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
@@ -547,15 +547,15 @@ fn hierarchical_insert_read_write() {
 
     impl ::Component for Pos{
         type Storage = ::Forest<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     impl ::Component for GlobalPos{
         type Storage = ::Forest<GlobalPos>;
-        fn type_name() -> &'static str{
-            "GlobalPos"
+        fn type_name() -> String{
+            "GlobalPos".to_owned()
         }
     }
 
@@ -645,15 +645,15 @@ fn read_write_and_parent() {
 
     impl ::Component for Pos{
         type Storage = ::Forest<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     impl ::Component for GlobalPos{
         type Storage = ::Forest<GlobalPos>;
-        fn type_name() -> &'static str{
-            "GlobalPos"
+        fn type_name() -> String{
+            "GlobalPos".to_owned()
         }
     }
 
@@ -732,15 +732,15 @@ fn insert_remove_dense_vec() {
 
     impl ::Component for Pos{
         type Storage = ::DenseVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     impl ::Component for Vel{
         type Storage = ::DenseVec<Vel>;
-        fn type_name() -> &'static str{
-            "Vel"
+        fn type_name() -> String{
+            "Vel".to_owned()
         }
     }
 
@@ -824,15 +824,15 @@ fn insert_remove_vec() {
 
     impl ::Component for Pos{
         type Storage = ::VecStorage<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     impl ::Component for Vel{
         type Storage = ::VecStorage<Vel>;
-        fn type_name() -> &'static str{
-            "Vel"
+        fn type_name() -> String{
+            "Vel".to_owned()
         }
     }
 
@@ -916,15 +916,15 @@ fn insert_remove_forest() {
 
     impl ::Component for Pos{
         type Storage = ::Forest<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
     impl ::Component for Vel{
         type Storage = ::Forest<Vel>;
-        fn type_name() -> &'static str{
-            "Vel"
+        fn type_name() -> String{
+            "Vel".to_owned()
         }
     }
 
@@ -1001,8 +1001,8 @@ fn insert_read_one_to_n() {
 
     impl ::Component for Pos{
         type Storage = ::DenseOneToNVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
@@ -1040,8 +1040,8 @@ fn insert_read_write_one_to_n() {
 
     impl ::Component for Pos{
         type Storage = ::DenseOneToNVec<Pos>;
-        fn type_name() -> &'static str{
-            "Pos"
+        fn type_name() -> String{
+            "Pos".to_owned()
         }
     }
 
@@ -1085,8 +1085,8 @@ fn pointer_to_hierarchy_root(){
     }
     impl ::Component for Skeleton{
         type Storage = ::DenseVec<Skeleton>;
-        fn type_name() -> &'static str{
-            "Skeleton"
+        fn type_name() -> String{
+            "Skeleton".to_owned()
         }
     }
 
@@ -1094,8 +1094,8 @@ fn pointer_to_hierarchy_root(){
     struct Bone;
     impl ::Component for Bone{
         type Storage = ::Forest<Bone>;
-        fn type_name() -> &'static str{
-            "Bone"
+        fn type_name() -> String{
+            "Bone".to_owned()
         }
     }
 
@@ -1145,8 +1145,8 @@ fn pointer_to_hierarchy_root(){
 //
 //     impl<'a> ::Component for Vertices<'a>{
 //         type Storage = ::DenseVec<Vertices<'a>>;
-//         fn type_name() -> &'static str{
-//             "Vertices"
+//         fn type_name() -> String{
+//             "Vertices".to_owned()
 //         }
 //     }
 //
