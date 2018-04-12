@@ -23,8 +23,8 @@ pub struct Positions{
 
 impl ::Component for Positions{
     type Storage = ::DenseVec<Positions>;
-    fn type_name() -> &'static str{
-        "Positions"
+    fn type_name() -> String{
+        "Positions".to_owned()
     }
 }
 
@@ -40,8 +40,8 @@ pub struct Velocities{
 
 impl ::Component for Velocities{
     type Storage = ::DenseVec<Velocities>;
-    fn type_name() -> &'static str{
-        "Velocities"
+    fn type_name() -> String{
+        "Velocities".to_owned()
     }
 }
 

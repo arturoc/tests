@@ -28,22 +28,22 @@ pub struct W2 {
 
 impl ::Component for R{
     type Storage = BenchStorage<R>;
-    fn type_name() -> &'static str{
-        "R"
+    fn type_name() -> String{
+        "R".to_owned()
     }
 }
 
 impl ::Component for W1{
     type Storage = BenchStorage<W1>;
-    fn type_name() -> &'static str{
-        "W1"
+    fn type_name() -> String{
+        "W1".to_owned()
     }
 }
 
 impl ::Component for W2{
     type Storage = BenchStorage<W2>;
-    fn type_name() -> &'static str{
-        "W2"
+    fn type_name() -> String{
+        "W2".to_owned()
     }
 }
 

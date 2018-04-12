@@ -24,8 +24,8 @@ pub struct Position {
 
 impl ::Component for Position{
     type Storage = BenchStorage<Position>;
-    fn type_name() -> &'static str{
-        "Position"
+    fn type_name() -> String{
+        "Position".to_owned()
     }
 }
 
@@ -37,8 +37,8 @@ pub struct Velocity {
 
 impl ::Component for Velocity{
     type Storage = BenchStorage<Velocity>;
-    fn type_name() -> &'static str{
-        "Velocity"
+    fn type_name() -> String{
+        "Velocity".to_owned()
     }
 }
 
