@@ -69,3 +69,30 @@ impl<'a, D: 'static, S: SystemWithDataThreadLocal<'a,D>> SystemThreadLocal<'a> f
         self.0.run(&mut self.1, entities, resources)
     }
 }
+
+pub trait WorldSystem{
+    fn run(&mut self, world: &mut ::World);
+}
+
+pub trait WorldSystemWithData<D: 'static>{
+    fn run(&mut self, data: &mut D, world: &mut ::World);
+}
+
+impl<F: FnMut(&mut ::World)> WorldSystem for F{
+    fn run(&mut self, world: &mut ::World){
+        self(world)
+    }
+}
+
+
+impl<D: 'static, F: FnMut(&mut D, &mut ::World)> WorldSystemWithData<D> for F{
+    fn run(&mut self, data: &mut D, world: &mut ::World){
+        self(data, world)
+    }
+}
+
+impl<D: 'static, S: WorldSystemWithData<D>> WorldSystem for (S, D) {
+    fn run(&mut self, world: &mut ::World){
+        self.0.run(&mut self.1, world)
+    }
+}

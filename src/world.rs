@@ -19,13 +19,33 @@ use entity::{EntityBuilder, Entities, EntitiesThreadLocal};
 use sync::*;
 use rayon::prelude::*;
 use ::{Bitmask, MaskType, NextMask};
+#[cfg(feature="dynamic_systems")]
 use dynamic_system_loader::DynamicSystemLoader;
+
+use std::iter;
 
 #[cfg(feature="stats_events")]
 use seitan::*;
 #[cfg(feature="stats_events")]
 use std::time;
 
+#[derive(Clone, Copy)]
+enum Priority{
+    Send(usize),
+    ThreadLocal(usize),
+    World(usize),
+    Barrier
+}
+
+impl Priority{
+    fn is_send(self) -> bool{
+        if let Priority::Send(_) = self {
+            true
+        }else{
+            false
+        }
+    }
+}
 
 pub struct World{
     storages: HashMap<component::Id, Box<Any>>,
@@ -44,10 +64,12 @@ pub struct World{
     pub(crate) components_mask_index: HashMap<component::Id, MaskType>,
 
 
-    systems: Vec<(usize, String, SyncSystem)>,
-    systems_thread_local: Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
-    barriers: Vec<(usize)>,
-    next_system_priority: AtomicUsize,
+    systems: Vec<(String, SyncSystem)>,
+    systems_thread_local: Vec<(String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+    world_systems: Vec<(String, Box<::WorldSystem>)>,
+    priority_queue: Vec<Priority>,
+    // barriers: Vec<(usize)>,>
+    // next_system_priority: AtomicUsize,
 
     #[cfg(feature="stats_events")]
     stats: Vec<(String, time::Duration)>,
@@ -79,8 +101,10 @@ impl World{
             remove_components_mask_index: HashMap::default(),
             systems: vec![],
             systems_thread_local: vec![],
-            barriers: vec![],
-            next_system_priority: AtomicUsize::new(0),
+            world_systems: vec![],
+            // barriers: vec![],
+            // next_system_priority: AtomicUsize::new(0),
+            priority_queue: vec![],
 
             #[cfg(feature="stats_events")]
             stats: Vec::new(),
@@ -293,8 +317,9 @@ impl World{
     pub fn add_system<S>(&mut self, system: S) -> &mut World
     where  for<'a> S: ::System<'a> + 'static
     {
-        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems.push((prio, String::new(), SyncSystem::new(system)));
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::Send(self.systems.len()));
+        self.systems.push((String::new(), SyncSystem::new(system)));
         self
     }
 
@@ -303,26 +328,48 @@ impl World{
     where S: FnMut(&mut D, Entities, ::Resources) + Send + 'static,
           D: Send + 'static
     {
-        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems.push((prio, String::new(), SyncSystem::new((system, data))));
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::Send(self.systems.len()));
+        self.systems.push((String::new(), SyncSystem::new((system, data))));
         self
     }
 
     pub fn add_system_thread_local<S>(&mut self, system: S) -> &mut World
     where  for<'a> S: ::SystemThreadLocal<'a> + 'static
     {
-        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems_thread_local.push((prio, String::new(), Box::new(system)));
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::ThreadLocal(self.systems_thread_local.len()));
+        self.systems_thread_local.push((String::new(), Box::new(system)));
         self
     }
 
     pub fn add_system_with_data_thread_local<S,D>(&mut self, system: S, data: D) -> &mut World
     // where  for<'a> S: ::SystemWithData<'a> + 'static
-    where S: FnMut(&mut D, EntitiesThreadLocal, ::ResourcesThreadLocal) + Send + 'static,
+    where S: FnMut(&mut D, EntitiesThreadLocal, ::ResourcesThreadLocal) + 'static,
           D: 'static
     {
-        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems_thread_local.push((prio, String::new(), Box::new((system, data))));
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::ThreadLocal(self.systems_thread_local.len()));
+        self.systems_thread_local.push((String::new(), Box::new((system, data))));
+        self
+    }
+
+    pub fn add_world_system<S>(&mut self, system: S) -> &mut World
+    where S: ::WorldSystem + 'static
+    {
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::World(self.world_systems.len()));
+        self.world_systems.push((String::new(), Box::new(system)));
+        self
+    }
+
+    pub fn add_world_system_with_data<S, D>(&mut self, system: S, data: D) -> &mut World
+    where S: FnMut(&mut D, &mut World) + 'static,
+          D: 'static
+    {
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::World(self.world_systems.len()));
+        self.world_systems.push((String::new(), Box::new((system, data))));
         self
     }
 
@@ -330,8 +377,9 @@ impl World{
     pub fn add_system_with_stats<S>(&mut self, system: S, name: &str) -> &mut World
     where  for<'a> S: ::System<'a> + 'static
     {
-        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems.push((prio, name.to_owned(), SyncSystem::new(system)));
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::Send(self.systems.len()));
+        self.systems.push((name.to_owned(), SyncSystem::new(system)));
         self.stats_events.insert(name.to_owned(), SenderRc::new());
         self
     }
@@ -340,8 +388,9 @@ impl World{
     pub fn add_system_with_stats_thread_local<S>(&mut self, system: S, name: &str) -> &mut World
     where  for<'a> S: ::SystemThreadLocal<'a> + 'static
     {
-        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems_thread_local.push((prio, name.to_owned(), Box::new(system)));
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::ThreadLocal(self.systems_thread_local.len()));
+        self.systems_thread_local.push((name.to_owned(), Box::new(system)));
         self.stats_events.insert(name.to_owned(), SenderRc::new());
         self
     }
@@ -360,8 +409,9 @@ impl World{
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system_with_data<D: Send + 'static>(&mut self, system_path: &str, data: D) -> &mut World{
         let system = self.dynamic_systems.new_system_with_data(system_path).unwrap();
-        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems.push((prio, String::new(), SyncSystem::new((system, data))));
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::Send(self.systems.len()));
+        self.systems.push((String::new(), SyncSystem::new((system, data))));
         self
     }
 
@@ -374,8 +424,9 @@ impl World{
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system_with_data_thread_local<D: 'static>(&mut self, system_path: &str, data: D) -> &mut World{
         let system = self.dynamic_systems.new_system_with_data_thread_local(system_path).unwrap();
-        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.systems_thread_local.push((prio, String::new(), Box::new((system, data))));
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        self.priority_queue.push(Priority::ThreadLocal(self.systems_thread_local.len()));
+        self.systems_thread_local.push((String::new(), Box::new((system, data))));
         self
     }
 
@@ -416,8 +467,9 @@ impl World{
 
     pub fn add_barrier(&mut self) -> &mut World
     {
-        let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.barriers.push(prio);
+        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
+        // self.barriers.push(prio);
+        self.priority_queue.push(Priority::Barrier);
         self
     }
 
@@ -428,13 +480,13 @@ impl World{
 
     pub fn run_once(&mut self){
         let systems_thread_local = unsafe{ mem::transmute::<
-                &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
-                &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
+                &mut Vec<(String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+                &mut Vec<(String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
             >(&mut self.systems_thread_local) };
-        let systems_thread_local2 = unsafe{ mem::transmute::<
-                &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
-                &mut Vec<(usize, String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
-            >(&mut self.systems_thread_local) };
+        let world_systems = unsafe{ mem::transmute::<
+                &mut Vec<(String, Box<::WorldSystem>)>,
+                &mut Vec<(String, Box<::WorldSystem>)>
+            >(&mut self.world_systems) };
 
 
         #[cfg(feature="stats_events")]
@@ -446,108 +498,52 @@ impl World{
                     &mut Vec<(String, time::Duration)>
                 >(&mut self.stats)}
         };
+        let world = unsafe{
+            mem::transmute::<&mut World, &mut World>(self)
+        };
+        let mut priority = self.priority_queue.iter();
 
-        let mut i_systems = 0;
-        let mut i_systems_tl = 0;
-        let mut i_barriers = 0;
-        let entities = self.entities();
-        let resources = self.resources();
-        loop {
-            let next_system = self.systems.get(i_systems);
-            let next_system_tl = systems_thread_local.get_mut(i_systems_tl);
-            let next_barrier = match self.barriers.get(i_barriers){
-                Some(barrier) => *barrier as u32,
-                None => u32::MAX,
-            };
-            match (next_system, next_system_tl){
-                (Some(&(sys_prio, ref name, ref system)), Some(&mut(sys_tl_prio, ref name_tl, ref mut system_tl))) => {
-                    if sys_prio < sys_tl_prio {
-                        let mut parallel_systems = vec![(sys_prio, name.clone(), system)];
-                        i_systems += 1;
-                        while let Some(&(sys_prio, ref name, ref system)) = self.systems.get(i_systems){
-                            if sys_prio < sys_tl_prio  && sys_prio < next_barrier as usize{
-                                parallel_systems.push((sys_prio, name.clone(), system));
-                                i_systems += 1;
-                            }else{
-                                if sys_prio > next_barrier as usize{
-                                    i_barriers += 1;
-                                }
-                                break;
-                            }
-                        }
+        loop{
+            if let Some(next) = priority.next() {
+                match next {
+                    Priority::Send(i) => {
+                        let entities = self.entities();
+                        let resources = self.resources();
+                        let systems = iter::once(Priority::Send(*i))
+                            .chain(priority.by_ref().take_while(|p| p.is_send()).cloned())
+                            .map(|p| if let Priority::Send(i) = p {i} else {unreachable!()})
+                            .map(|i| &self.systems[i])
+                            .collect::<Vec<_>>();
+
 
 
                         #[cfg(feature="stats_events")]
-                        stats.par_extend(parallel_systems.par_iter().filter_map(|&(_, ref name, s)| {
+                        stats.par_extend(systems.par_iter().filter_map(|&(ref name, s)| {
                             if name != "" {
                                 let then = time::Instant::now();
                                 s.borrow_mut().run(entities, resources);
                                 let now = time::Instant::now();
                                 Some((name.clone(), now - then))
                             }else{
-                                system.borrow_mut().run(entities, resources);
+                                s.borrow_mut().run(entities, resources);
                                 None
                             }
                         }));
 
                         #[cfg(not(feature="stats_events"))]
-                        parallel_systems.par_iter().for_each(|&(_, _, s)| {
+                        systems.par_iter().for_each(|&( _, s)| {
                             s.borrow_mut().run(entities, resources)
                         });
-
-                        // Run next tl systems in parallel but on the main thread
-                        // not possible with rayon atm? we need to async wait for the
-                        // parallel systems to finish
-                        // if sys_tl_prio < next_barrier as usize {
-                        //     #[cfg(feature="stats_events")]
-                        //     {
-                        //         if name_tl != "" {
-                        //             let then = time::Instant::now();
-                        //             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                        //             let now = time::Instant::now();
-                        //             stats.push((name_tl.clone(), now - then));
-                        //         }else{
-                        //             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                        //         }
-                        //     }
-
-                        //     #[cfg(not(feature="stats_events"))]
-                        //     system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-
-                        //     while let Some(&mut (sys_tl_prio, ref name_tl, ref mut system_tl)) = systems_thread_local2.get_mut(i_systems_tl){
-                        //         if sys_tl_prio < next_barrier as usize{
-                        //             #[cfg(feature="stats_events")]
-                        //             {
-                        //                 if name_tl != "" {
-                        //                     let then = time::Instant::now();
-                        //                     system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                        //                     let now = time::Instant::now();
-                        //                     stats.push((name_tl.clone(), now - then));
-                        //                 }else{
-                        //                     system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                        //                 }
-                        //             }
-
-                        //             #[cfg(not(feature="stats_events"))]
-                        //             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-
-                        //             i_systems_tl += 1;
-                        //         }else{
-                        //             if sys_prio > next_barrier as usize{
-                        //                 i_barriers += 1;
-                        //             }
-                        //             break;
-                        //         }
-                        //     }
-                        // }
-                    }else{
+                    }
+                    Priority::ThreadLocal(i) => {
+                        let (_name, system_tl) = &mut systems_thread_local[*i];
                         #[cfg(feature="stats_events")]
                         {
-                            if name_tl != "" {
+                            if _name != "" {
                                 let then = time::Instant::now();
                                 system_tl.run(self.entities_thread_local(), self.resources_thread_local());
                                 let now = time::Instant::now();
-                                stats.push((name_tl.clone(), now - then));
+                                stats.push((_name.clone(), now - then));
                             }else{
                                 system_tl.run(self.entities_thread_local(), self.resources_thread_local());
                             }
@@ -555,62 +551,32 @@ impl World{
 
                         #[cfg(not(feature="stats_events"))]
                         system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-
-                        i_systems_tl += 1;
                     }
-                }
-                (Some(&(sys_prio, ref name, ref system)), None) => {
-                    let mut parallel_systems = vec![(sys_prio, name.clone(), system)];
-                    i_systems += 1;
-                    while let Some(&(sys_prio, ref name, ref system)) = self.systems.get(i_systems){
-                        if sys_prio < next_barrier as usize{
-                            parallel_systems.push((sys_prio, name.clone(), system));
-                            i_systems += 1;
-                        }else{
-                            if sys_prio > next_barrier as usize{
-                                i_barriers += 1;
+                    Priority::World(i) => {
+                        // FIXME: This is not safe if the system adds new systems since we are holding
+                        // references to collections that will change if that happens
+                        // Use a creation proxy that only gives access to entities / resources?
+                        let (_name, system_w) = &mut world_systems[*i];
+                        #[cfg(feature="stats_events")]
+                        {
+                            if _name != "" {
+                                let then = time::Instant::now();
+                                system_w.run(world);
+                                let now = time::Instant::now();
+                                stats.push((_name.clone(), now - then));
+                            }else{
+                                system_w.run(world);
                             }
-                            break;
                         }
+
+                        #[cfg(not(feature="stats_events"))]
+                        system_w.run(world);
+
                     }
-
-
-                    #[cfg(feature="stats_events")]
-                    stats.par_extend(parallel_systems.par_iter().filter_map(|&(_, ref name, s)| {
-                        if name != "" {
-                            let then = time::Instant::now();
-                            s.borrow_mut().run(entities, resources);
-                            let now = time::Instant::now();
-                            Some((name.clone(), now - then))
-                        }else{
-                            system.borrow_mut().run(entities, resources);
-                            None
-                        }
-                    }));
-
-                    #[cfg(not(feature="stats_events"))]
-                    parallel_systems.par_iter().for_each(|&(_, _, s)| {
-                        s.borrow_mut().run(entities, resources)
-                    });
+                    Priority::Barrier => ()
                 }
-                (None, Some(&mut(_, ref _name, ref mut system_tl))) => {
-                    #[cfg(feature="stats_events")]
-                    {
-                        if _name != "" {
-                            let then = time::Instant::now();
-                            system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                            let now = time::Instant::now();
-                            stats.push((_name.clone(), now - then));
-                        }else{
-                            system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                        }
-                    }
-
-                    #[cfg(not(feature="stats_events"))]
-                    system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                    i_systems_tl += 1;
-                }
-                (None, None) => break
+            }else{
+                break;
             }
         }
 
