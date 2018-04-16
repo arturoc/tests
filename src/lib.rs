@@ -5,6 +5,8 @@ extern crate rayon;
 extern crate boolinator;
 // extern crate fnv;
 extern crate fxhash;
+extern crate crossbeam_utils;
+extern crate smallvec;
 #[cfg(feature="stats_events")]
 extern crate seitan;
 
@@ -28,7 +30,7 @@ pub use storage::{Read, Write, Not, ReadNot, ReadOr, ReadOption,
     IntoOrderedIter, IntoOrderedIterMut, ReadAndParent, WriteAndParent,
     HierarchicalOneToNStorage,
 };
-pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder};
+pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder, EntitiesCreation};
 pub use component::{Component, ComponentSync, ComponentThreadLocal,
     OneToNComponent, HierarchicalOneToNComponent};
 pub use dense_vec::DenseVec;
@@ -43,6 +45,7 @@ pub use hashmap::HashMapStorage;
 pub use idtree::{NodeRef, NodeRefMut, NodeId};
 pub use sync::Ptr;
 pub use oneton_forest::OneToNForest;
+pub use creation_proxy::CreationProxy;
 
 
 mod sync;
@@ -60,10 +63,11 @@ mod oneton_densevec;
 mod oneton_forest;
 mod assoc_vec;
 mod hashmap;
+mod bitmask;
+mod creation_proxy;
+
 #[cfg(feature="dynamic_systems")]
 mod dynamic_system_loader;
-
-mod bitmask;
 
 
 #[cfg(test)]

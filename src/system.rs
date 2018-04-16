@@ -70,29 +70,29 @@ impl<'a, D: 'static, S: SystemWithDataThreadLocal<'a,D>> SystemThreadLocal<'a> f
     }
 }
 
-pub trait WorldSystem{
-    fn run(&mut self, world: &mut ::World);
+pub trait CreationSystem<'a>{
+    fn run(&mut self, entities: ::EntitiesCreation<'a>, resources: ::ResourcesThreadLocal<'a>);
 }
 
-pub trait WorldSystemWithData<D: 'static>{
-    fn run(&mut self, data: &mut D, world: &mut ::World);
+pub trait CreationSystemWithData<'a, D: 'static>{
+    fn run(&mut self, data: &mut D, entities: ::EntitiesCreation<'a>, resources: ::ResourcesThreadLocal<'a>);
 }
 
-impl<F: FnMut(&mut ::World)> WorldSystem for F{
-    fn run(&mut self, world: &mut ::World){
-        self(world)
+impl<'a, F: FnMut(::EntitiesCreation<'a>, ::ResourcesThreadLocal<'a>)> CreationSystem<'a> for F{
+    fn run(&mut self, entities: ::EntitiesCreation<'a>, resources: ::ResourcesThreadLocal<'a>){
+        self(entities, resources)
     }
 }
 
 
-impl<D: 'static, F: FnMut(&mut D, &mut ::World)> WorldSystemWithData<D> for F{
-    fn run(&mut self, data: &mut D, world: &mut ::World){
-        self(data, world)
+impl<'a, D: 'static, F: FnMut(&mut D, ::EntitiesCreation<'a>, ::ResourcesThreadLocal<'a>)> CreationSystemWithData<'a, D> for F{
+    fn run(&mut self, data: &mut D, entities: ::EntitiesCreation<'a>, resources: ::ResourcesThreadLocal<'a>){
+        self(data, entities, resources)
     }
 }
 
-impl<D: 'static, S: WorldSystemWithData<D>> WorldSystem for (S, D) {
-    fn run(&mut self, world: &mut ::World){
-        self.0.run(&mut self.1, world)
+impl<'a, D: 'static, S: CreationSystemWithData<'a, D>> CreationSystem<'a> for (S, D) {
+    fn run(&mut self, entities: ::EntitiesCreation<'a>, resources: ::ResourcesThreadLocal<'a>){
+        self.0.run(&mut self.1, entities, resources)
     }
 }

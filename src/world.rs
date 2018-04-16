@@ -10,6 +10,8 @@ use std::u32;
 use std::thread;
 use ::System;
 use ::SystemThreadLocal;
+use crossbeam_utils;
+use smallvec;
 
 use ::Entity;
 use component::{self, ComponentSync, Component, ComponentThreadLocal,
@@ -20,20 +22,18 @@ use sync::*;
 use rayon::prelude::*;
 use ::{Bitmask, MaskType, NextMask};
 #[cfg(feature="dynamic_systems")]
-use dynamic_system_loader::DynamicSystemLoader;
-
-use std::iter;
+use dynamic_system_loader::DynamicSystemsLoader;
 
 #[cfg(feature="stats_events")]
 use seitan::*;
 #[cfg(feature="stats_events")]
 use std::time;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Priority{
     Send(usize),
     ThreadLocal(usize),
-    World(usize),
+    Creation(usize),
     Barrier
 }
 
@@ -66,7 +66,7 @@ pub struct World{
 
     systems: Vec<(String, SyncSystem)>,
     systems_thread_local: Vec<(String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
-    world_systems: Vec<(String, Box<::WorldSystem>)>,
+    world_systems: Vec<(String, Box<for<'a> ::CreationSystem<'a>>)>,
     priority_queue: Vec<Priority>,
     // barriers: Vec<(usize)>,>
     // next_system_priority: AtomicUsize,
@@ -78,7 +78,7 @@ pub struct World{
     stats_events: HashMap<String, SenderRc<'static, time::Duration>>,
 
     #[cfg(feature="dynamic_systems")]
-    dynamic_systems: DynamicSystemLoader,
+    dynamic_systems: DynamicSystemsLoader,
 }
 
 unsafe impl Send for World{}
@@ -113,7 +113,7 @@ impl World{
             stats_events: HashMap::default(),
 
             #[cfg(feature="dynamic_systems")]
-            dynamic_systems: DynamicSystemLoader::new().unwrap(),
+            dynamic_systems: DynamicSystemsLoader::new().unwrap(),
         }
     }
 
@@ -328,10 +328,7 @@ impl World{
     where S: FnMut(&mut D, Entities, ::Resources) + Send + 'static,
           D: Send + 'static
     {
-        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.priority_queue.push(Priority::Send(self.systems.len()));
-        self.systems.push((String::new(), SyncSystem::new((system, data))));
-        self
+        self.add_system((system, data))
     }
 
     pub fn add_system_thread_local<S>(&mut self, system: S) -> &mut World
@@ -354,21 +351,21 @@ impl World{
         self
     }
 
-    pub fn add_world_system<S>(&mut self, system: S) -> &mut World
-    where S: ::WorldSystem + 'static
+    pub fn add_creation_system<S>(&mut self, system: S) -> &mut World
+    where S: for<'a> ::CreationSystem<'a> + 'static
     {
         // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.priority_queue.push(Priority::World(self.world_systems.len()));
+        self.priority_queue.push(Priority::Creation(self.world_systems.len()));
         self.world_systems.push((String::new(), Box::new(system)));
         self
     }
 
-    pub fn add_world_system_with_data<S, D>(&mut self, system: S, data: D) -> &mut World
-    where S: FnMut(&mut D, &mut World) + 'static,
+    pub fn add_creation_system_with_data<S, D>(&mut self, system: S, data: D) -> &mut World
+    where S: FnMut(&mut D, ::EntitiesCreation, ::ResourcesThreadLocal) + 'static,
           D: 'static
     {
         // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.priority_queue.push(Priority::World(self.world_systems.len()));
+        self.priority_queue.push(Priority::Creation(self.world_systems.len()));
         self.world_systems.push((String::new(), Box::new((system, data))));
         self
     }
@@ -377,9 +374,7 @@ impl World{
     pub fn add_system_with_stats<S>(&mut self, system: S, name: &str) -> &mut World
     where  for<'a> S: ::System<'a> + 'static
     {
-        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.priority_queue.push(Priority::Send(self.systems.len()));
-        self.systems.push((name.to_owned(), SyncSystem::new(system)));
+        self.add_system(system);
         self.stats_events.insert(name.to_owned(), SenderRc::new());
         self
     }
@@ -388,9 +383,7 @@ impl World{
     pub fn add_system_with_stats_thread_local<S>(&mut self, system: S, name: &str) -> &mut World
     where  for<'a> S: ::SystemThreadLocal<'a> + 'static
     {
-        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.priority_queue.push(Priority::ThreadLocal(self.systems_thread_local.len()));
-        self.systems_thread_local.push((name.to_owned(), Box::new(system)));
+        self.add_system_thread_local(system);
         self.stats_events.insert(name.to_owned(), SenderRc::new());
         self
     }
@@ -409,10 +402,7 @@ impl World{
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system_with_data<D: Send + 'static>(&mut self, system_path: &str, data: D) -> &mut World{
         let system = self.dynamic_systems.new_system_with_data(system_path).unwrap();
-        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.priority_queue.push(Priority::Send(self.systems.len()));
-        self.systems.push((String::new(), SyncSystem::new((system, data))));
-        self
+        self.add_system((system, data))
     }
 
     #[cfg(feature="dynamic_systems")]
@@ -424,10 +414,19 @@ impl World{
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system_with_data_thread_local<D: 'static>(&mut self, system_path: &str, data: D) -> &mut World{
         let system = self.dynamic_systems.new_system_with_data_thread_local(system_path).unwrap();
-        // let prio = self.next_system_priority.fetch_add(1, Ordering::SeqCst);
-        self.priority_queue.push(Priority::ThreadLocal(self.systems_thread_local.len()));
-        self.systems_thread_local.push((String::new(), Box::new((system, data))));
-        self
+        self.add_system_thread_local((system, data))
+    }
+
+    #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_creation_system(&mut self, system_path: &str) -> &mut World{
+        let system = self.dynamic_systems.new_creation_system(system_path).unwrap();
+        self.add_creation_system(system)
+    }
+
+    #[cfg(feature="dynamic_systems")]
+    pub fn new_dynamic_creation_system_with_data<D: 'static>(&mut self, system_path: &str, data: D) -> &mut World{
+        let system = self.dynamic_systems.new_creation_system_with_data(system_path).unwrap();
+        self.add_creation_system((system, data))
     }
 
     #[cfg(feature="dynamic_systems")]
@@ -484,8 +483,8 @@ impl World{
                 &mut Vec<(String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
             >(&mut self.systems_thread_local) };
         let world_systems = unsafe{ mem::transmute::<
-                &mut Vec<(String, Box<::WorldSystem>)>,
-                &mut Vec<(String, Box<::WorldSystem>)>
+                &mut Vec<(String, Box<for<'a> ::CreationSystem<'a>>)>,
+                &mut Vec<(String, Box<for<'a> ::CreationSystem<'a>>)>
             >(&mut self.world_systems) };
 
 
@@ -501,82 +500,79 @@ impl World{
         let world = unsafe{
             mem::transmute::<&mut World, &mut World>(self)
         };
-        let mut priority = self.priority_queue.iter();
+        let mut priority = self.priority_queue.iter().peekable();
+        let mut send_systems: smallvec::SmallVec<[&(String, SyncSystem); 128]> = smallvec::SmallVec::new();
 
-        loop{
-            if let Some(next) = priority.next() {
-                match next {
-                    Priority::Send(i) => {
-                        let entities = self.entities();
-                        let resources = self.resources();
-                        let systems = iter::once(Priority::Send(*i))
-                            .chain(priority.by_ref().take_while(|p| p.is_send()).cloned())
-                            .map(|p| if let Priority::Send(i) = p {i} else {unreachable!()})
-                            .map(|i| &self.systems[i])
-                            .collect::<Vec<_>>();
+        while let Some(next) = priority.next() {
+            send_systems.clear();
+            match next {
+                Priority::Send(i) => {
+                    let entities = self.entities();
+                    let resources = self.resources();
 
-
-
-                        #[cfg(feature="stats_events")]
-                        stats.par_extend(systems.par_iter().filter_map(|&(ref name, s)| {
-                            if name != "" {
-                                let then = time::Instant::now();
-                                s.borrow_mut().run(entities, resources);
-                                let now = time::Instant::now();
-                                Some((name.clone(), now - then))
-                            }else{
-                                s.borrow_mut().run(entities, resources);
-                                None
-                            }
-                        }));
-
-                        #[cfg(not(feature="stats_events"))]
-                        systems.par_iter().for_each(|&( _, s)| {
-                            s.borrow_mut().run(entities, resources)
-                        });
+                    send_systems.push(&self.systems[*i]);
+                    while let Some(Priority::Send(i)) = priority.peek(){
+                        send_systems.push(&self.systems[*i]);
+                        priority.next();
                     }
-                    Priority::ThreadLocal(i) => {
-                        let (_name, system_tl) = &mut systems_thread_local[*i];
-                        #[cfg(feature="stats_events")]
-                        {
-                            if _name != "" {
-                                let then = time::Instant::now();
-                                system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                                let now = time::Instant::now();
-                                stats.push((_name.clone(), now - then));
-                            }else{
-                                system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                            }
+
+                    #[cfg(feature="stats_events")]
+                    stats.par_extend(send_systems.par_iter().filter_map(|&(ref name, s)| {
+                        if name != "" {
+                            let then = time::Instant::now();
+                            s.borrow_mut().run(entities, resources);
+                            let now = time::Instant::now();
+                            Some((name.clone(), now - then))
+                        }else{
+                            s.borrow_mut().run(entities, resources);
+                            None
                         }
+                    }));
 
-                        #[cfg(not(feature="stats_events"))]
-                        system_tl.run(self.entities_thread_local(), self.resources_thread_local());
-                    }
-                    Priority::World(i) => {
-                        // FIXME: This is not safe if the system adds new systems since we are holding
-                        // references to collections that will change if that happens
-                        // Use a creation proxy that only gives access to entities / resources?
-                        let (_name, system_w) = &mut world_systems[*i];
-                        #[cfg(feature="stats_events")]
-                        {
-                            if _name != "" {
-                                let then = time::Instant::now();
-                                system_w.run(world);
-                                let now = time::Instant::now();
-                                stats.push((_name.clone(), now - then));
-                            }else{
-                                system_w.run(world);
-                            }
-                        }
-
-                        #[cfg(not(feature="stats_events"))]
-                        system_w.run(world);
-
-                    }
-                    Priority::Barrier => ()
+                    #[cfg(not(feature="stats_events"))]
+                    send_systems.par_iter().for_each(|&( _, s)| {
+                        s.borrow_mut().run(entities, resources)
+                    });
                 }
-            }else{
-                break;
+
+                Priority::ThreadLocal(i) => {
+                    let (_name, system_tl) = &mut systems_thread_local[*i];
+                    #[cfg(feature="stats_events")]
+                    {
+                        if _name != "" {
+                            let then = time::Instant::now();
+                            system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                            let now = time::Instant::now();
+                            stats.push((_name.clone(), now - then));
+                        }else{
+                            system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                        }
+                    }
+
+                    #[cfg(not(feature="stats_events"))]
+                    system_tl.run(self.entities_thread_local(), self.resources_thread_local());
+                }
+
+                Priority::Creation(i) => {
+                    let (_name, system_w) = &mut world_systems[*i];
+                    #[cfg(feature="stats_events")]
+                    {
+                        if _name != "" {
+                            let then = time::Instant::now();
+                            system_w.run(::EntitiesCreation::new(world), self.resources_thread_local());
+                            let now = time::Instant::now();
+                            stats.push((_name.clone(), now - then));
+                        }else{
+                            system_w.run(::EntitiesCreation::new(world), self.resources_thread_local());
+                        }
+                    }
+
+                    #[cfg(not(feature="stats_events"))]
+                    system_w.run(::EntitiesCreation::new(world), self.resources_thread_local());
+
+                }
+
+                Priority::Barrier => ()
             }
         }
 

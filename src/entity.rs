@@ -293,3 +293,85 @@ impl<'a> EntitiesThreadLocal<'a>{
     //     S::storage(self.world).get(entity.guid())
     // }
 }
+
+
+
+
+pub struct EntitiesCreation<'a>{
+    world: &'a mut ::World,
+}
+
+impl<'a> EntitiesCreation<'a>{
+    pub(crate) fn new(world: &mut World) -> EntitiesCreation{
+        EntitiesCreation{ world }
+    }
+
+    pub fn iter_for<'e, S: UnorderedDataLocal<'e> + 'a>(&'e self) -> <S as UnorderedDataLocal<'e>>::Iter{
+        S::into_iter( self.world )
+    }
+
+    pub fn ordered_iter_for<'e, S: OrderedDataLocal<'e> + 'a>(&'e self) -> <S as OrderedDataLocal<'e>>::Iter{
+        S::into_iter( self.world )
+    }
+
+    pub fn component_for<C: ::Component>(&self, entity: &Entity) -> Option<Ptr<C>> {
+        // let world = unsafe{ mem::transmute::<&mut World, &mut World>(self.world) };
+        let storage = self.world.storage_thread_local::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        storage.contains(entity.guid())
+            .as_some_from(|| Ptr::new(storage, entity.clone()))
+    }
+
+    pub fn component_for_mut<C: ::Component>(&self, entity: &Entity) -> Option<PtrMut<C>> {
+        let storage = self.world.storage_thread_local_mut::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        storage.contains(entity.guid())
+            .as_some_from(|| PtrMut::new(storage, entity.clone()))
+    }
+
+    pub fn tree_node_for<'e, C: ::Component>(&'e self, entity: &Entity) -> Option<NodePtr<'e, C>>
+        where <C as ::Component>::Storage: ::HierarchicalStorage<'e, C>
+    {
+        let storage = self.world.storage_thread_local::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        storage.contains(entity.guid())
+            .as_some_from(|| NodePtr::new(storage, entity.clone()))
+    }
+
+    pub fn tree_node_for_mut<'e, C: ::Component>(&'e self, entity: &Entity) -> Option<NodePtrMut<'e, C>>
+        where <C as ::Component>::Storage: ::HierarchicalStorage<'e, C>
+    {
+        let storage = self.world.storage_thread_local_mut::<C>()
+            .expect(&format!("Trying to use non registered type {}", C::type_name()));
+        storage.contains(entity.guid())
+            .as_some_from(|| NodePtrMut::new(storage, entity.clone()))
+    }
+
+    pub fn create_entity(&mut self) -> EntityBuilder{
+        self.world.create_entity()
+    }
+
+    pub fn add_component_to<C: ComponentSync>(&mut self, entity: &Entity, component: C){
+        self.world.add_component_to(entity, component)
+    }
+
+    pub fn add_component_to_thread_local<C: ComponentThreadLocal>(&mut self, entity: &Entity, component: C){
+        self.world.add_component_to_thread_local(entity, component)
+    }
+
+    pub fn add_slice_component_to<C: OneToNComponentSync>(&mut self, entity: &Entity, component: &[C]){
+        self.world.add_slice_component_to(entity, component)
+    }
+
+    pub fn add_slice_component_to_thread_local<C: OneToNComponentThreadLocal>(&mut self, entity: &Entity, component: &[C]){
+        self.world.add_slice_component_to_thread_local(entity, component)
+    }
+
+    pub fn remove_component_from<C: ::Component>(&mut self, entity: &::Entity){
+        self.world.remove_component_from::<C>(entity)
+    }
+
+    pub fn remove_entity(&mut self, entity: &::Entity){
+        self.world.remove_entity(entity)
+    }
+}
