@@ -5,7 +5,6 @@ extern crate rayon;
 extern crate boolinator;
 // extern crate fnv;
 extern crate fxhash;
-extern crate crossbeam_utils;
 extern crate smallvec;
 #[cfg(feature="stats_events")]
 extern crate seitan;
