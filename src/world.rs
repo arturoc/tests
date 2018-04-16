@@ -6,11 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::slice;
 use std::mem;
-use std::u32;
-use std::thread;
 use ::System;
 use ::SystemThreadLocal;
-use crossbeam_utils;
 use smallvec;
 
 use ::Entity;
@@ -35,16 +32,6 @@ enum Priority{
     ThreadLocal(usize),
     Creation(usize),
     Barrier
-}
-
-impl Priority{
-    fn is_send(self) -> bool{
-        if let Priority::Send(_) = self {
-            true
-        }else{
-            false
-        }
-    }
 }
 
 pub struct World{
