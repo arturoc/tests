@@ -28,7 +28,7 @@ use seitan::*;
 use std::time;
 
 #[derive(Clone, Copy, Debug)]
-pub enum Priority{
+enum Priority{
     Send(usize),
     ThreadLocal(usize),
     Creation(usize),
@@ -52,9 +52,9 @@ pub struct World{
     pub(crate) components_mask_index: HashMap<component::Id, MaskType>,
 
 
-    systems: Vec<(String, SyncSystem)>,
-    systems_thread_local: Vec<(String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
-    world_systems: Vec<(String, Box<for<'a> ::CreationSystem<'a>>)>,
+    systems: Vec<(Option<String>, SyncSystem)>,
+    systems_thread_local: Vec<(Option<String>, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+    world_systems: Vec<(Option<String>, Box<for<'a> ::CreationSystem<'a>>)>,
     priority_queue: Vec<Priority>,
     // barriers: Vec<(usize)>,>
     // next_system_priority: AtomicUsize,
@@ -69,53 +69,53 @@ pub struct World{
     dynamic_systems: DynamicSystemsLoader,
 }
 
-// pub trait AnySystem<TraitObject>{
-//     fn collection(world: &mut World) -> &mut Vec<(String, TraitObject)>;
-//     fn priority(p: usize) -> Priority;
-//     fn into_trait_object(self) -> TraitObject;
-// }
+trait AnySystem<TraitObject>{
+    fn collection(world: &mut World) -> &mut Vec<(Option<String>, TraitObject)>;
+    fn priority(p: usize) -> Priority;
+    fn into_trait_object(self) -> TraitObject;
+}
 
-// impl<S: for<'a> System<'a> + 'static> AnySystem<SyncSystem> for S{
-//     fn collection(world: &mut World) -> &mut Vec<(String, SyncSystem)>{
-//         &mut world.systems
-//     }
+impl<S: for<'a> System<'a> + 'static> AnySystem<SyncSystem> for S{
+    fn collection(world: &mut World) -> &mut Vec<(Option<String>, SyncSystem)>{
+        &mut world.systems
+    }
 
-//     fn priority(p: usize) -> Priority{
-//         Priority::Send(p)
-//     }
+    fn priority(p: usize) -> Priority{
+        Priority::Send(p)
+    }
 
-//     fn into_trait_object(self) -> SyncSystem{
-//         SyncSystem::new(self)
-//     }
-// }
+    fn into_trait_object(self) -> SyncSystem{
+        SyncSystem::new(self)
+    }
+}
 
-// impl<S: for<'a> SystemThreadLocal<'a> + 'static> AnySystem<Box<for<'a> SystemThreadLocal<'a>>> for S{
-//     fn collection(world: &mut World) -> &mut Vec<(String, Box<for<'a> SystemThreadLocal<'a>>)>{
-//         &mut world.systems_thread_local
-//     }
+impl<S: for<'a> SystemThreadLocal<'a> + 'static> AnySystem<Box<for<'a> SystemThreadLocal<'a>>> for S{
+    fn collection(world: &mut World) -> &mut Vec<(Option<String>, Box<for<'a> SystemThreadLocal<'a>>)>{
+        &mut world.systems_thread_local
+    }
 
-//     fn priority(p: usize) -> Priority{
-//         Priority::ThreadLocal(p)
-//     }
+    fn priority(p: usize) -> Priority{
+        Priority::ThreadLocal(p)
+    }
 
-//     fn into_trait_object(self) -> Box<for<'a> SystemThreadLocal<'a>>{
-//         Box::new(self)
-//     }
-// }
+    fn into_trait_object(self) -> Box<for<'a> SystemThreadLocal<'a>>{
+        Box::new(self)
+    }
+}
 
-// impl<S: for<'a> CreationSystem<'a> + 'static> AnySystem<Box<for<'a> CreationSystem<'a>>> for S{
-//     fn collection(world: &mut World) -> &mut Vec<(String, Box<for<'a> CreationSystem<'a>>)>{
-//         &mut world.world_systems
-//     }
+impl<S: for<'a> CreationSystem<'a> + 'static> AnySystem<Box<for<'a> CreationSystem<'a>>> for S{
+    fn collection(world: &mut World) -> &mut Vec<(Option<String>, Box<for<'a> CreationSystem<'a>>)>{
+        &mut world.world_systems
+    }
 
-//     fn priority(p: usize) -> Priority{
-//         Priority::Creation(p)
-//     }
+    fn priority(p: usize) -> Priority{
+        Priority::Creation(p)
+    }
 
-//     fn into_trait_object(self) -> Box<for<'a> CreationSystem<'a>>{
-//         Box::new(self)
-//     }
-// }
+    fn into_trait_object(self) -> Box<for<'a> CreationSystem<'a>>{
+        Box::new(self)
+    }
+}
 
 unsafe impl Send for World{}
 
@@ -350,91 +350,78 @@ impl World{
         })
     }
 
-    pub fn add_system<S>(&mut self, system: S) -> &mut World
-    where  for<'a> S: ::System<'a> + 'static
+    fn add_any_system<S, TraitObject>(&mut self, system: S, name: Option<&str>) -> &mut World
+    where  S: AnySystem<TraitObject> + 'static
     {
-        self.priority_queue.push(Priority::Send(self.systems.len()));
-        self.systems.push((String::new(), SyncSystem::new(system)));
+        let priority = S::priority(S::collection(self).len());
+        self.priority_queue.push(priority);
+        S::collection(self).push((name.map(|n| n.to_owned()), system.into_trait_object()));
+
+        if let Some(_name) = name {
+            #[cfg(feature="stats_events")]
+            self.stats_events.insert(_name.to_owned(), SenderRc::new());
+        }
         self
     }
 
-    // pub fn add_system<S, TraitObject>(&mut self, system: S) -> &mut World
-    // where  S: AnySystem<TraitObject> + 'static
-    // {
-    //     self.priority_queue.push(S::priority(self.systems.len()));
-    //     S::collection(self).push((String::new(), system.into_trait_object()));
-    //     self
-    // }
+    pub fn add_system<S>(&mut self, system: S) -> &mut World
+    where  for<'a> S: ::System<'a> + 'static
+    {
+        self.add_any_system(system, None)
+    }
 
     pub fn add_system_with_data<S,D>(&mut self, system: S, data: D) -> &mut World
     where S: FnMut(&mut D, Entities, ::Resources) + Send + 'static,
           D: Send + 'static
     {
-        self.add_system((system, data))
+        self.add_any_system((system, data), None)
     }
 
     pub fn add_system_thread_local<S>(&mut self, system: S) -> &mut World
     where  for<'a> S: ::SystemThreadLocal<'a> + 'static
     {
-        self.priority_queue.push(Priority::ThreadLocal(self.systems_thread_local.len()));
-        self.systems_thread_local.push((String::new(), Box::new(system)));
-        self
+        self.add_any_system(system, None)
     }
 
     pub fn add_system_with_data_thread_local<S,D>(&mut self, system: S, data: D) -> &mut World
     where S: FnMut(&mut D, EntitiesThreadLocal, ::ResourcesThreadLocal) + 'static,
           D: 'static
     {
-        self.priority_queue.push(Priority::ThreadLocal(self.systems_thread_local.len()));
-        self.systems_thread_local.push((String::new(), Box::new((system, data))));
-        self
+        self.add_any_system((system, data), None)
     }
 
     pub fn add_creation_system<S>(&mut self, system: S) -> &mut World
     where S: for<'a> ::CreationSystem<'a> + 'static
     {
-        self.priority_queue.push(Priority::Creation(self.world_systems.len()));
-        self.world_systems.push((String::new(), Box::new(system)));
-        self
+        self.add_any_system(system, None)
     }
 
     pub fn add_creation_system_with_data<S, D>(&mut self, system: S, data: D) -> &mut World
     where S: FnMut(&mut D, ::EntitiesCreation, ::ResourcesThreadLocal) + 'static,
           D: 'static
     {
-        self.priority_queue.push(Priority::Creation(self.world_systems.len()));
-        self.world_systems.push((String::new(), Box::new((system, data))));
-        self
+        self.add_any_system((system, data), None)
     }
 
     #[cfg(feature="stats_events")]
     pub fn add_system_with_stats<S>(&mut self, system: S, name: &str) -> &mut World
     where  for<'a> S: ::System<'a> + 'static
     {
-        self.priority_queue.push(Priority::Send(self.systems.len()));
-        self.systems.push((name.to_owned(), SyncSystem::new(system)));
-        self.stats_events.insert(name.to_owned(), SenderRc::new());
-        self
+        self.add_any_system(system, Some(name))
     }
 
     #[cfg(feature="stats_events")]
     pub fn add_system_with_stats_thread_local<S>(&mut self, system: S, name: &str) -> &mut World
     where  for<'a> S: ::SystemThreadLocal<'a> + 'static
     {
-        self.priority_queue.push(Priority::ThreadLocal(self.systems_thread_local.len()));
-        self.systems_thread_local.push((name.to_owned(), Box::new(system)));
-        self.stats_events.insert(name.to_owned(), SenderRc::new());
-        self
+        self.add_any_system(system, Some(name))
     }
 
     #[cfg(feature="stats_events")]
     pub fn add_creation_system_with_stats<S>(&mut self, system: S, name: &str) -> &mut World
     where  for<'a> S: ::CreationSystem<'a> + 'static
     {
-        self.priority_queue.push(Priority::Creation(self.world_systems.len()));
-        self.world_systems.push((name.to_owned(), Box::new(system)));
-        self.stats_events.insert(name.to_owned(), SenderRc::new());
-        self
+        self.add_any_system(system, Some(name))
     }
 
     #[cfg(feature="stats_events")]
@@ -442,7 +429,7 @@ impl World{
     where  S: FnMut(&mut D, Entities, ::Resources) + Send + 'static,
            D: Send + 'static,
     {
-        self.add_system_with_stats((system, data), name)
+        self.add_any_system((system, data), Some(name))
     }
 
     #[cfg(feature="stats_events")]
@@ -450,7 +437,7 @@ impl World{
     where  S: FnMut(&mut D, EntitiesThreadLocal, ::ResourcesThreadLocal) + Send + 'static,
            D: 'static,
     {
-        self.add_system_with_stats_thread_local((system, data), name)
+        self.add_any_system((system, data), Some(name))
     }
 
     #[cfg(feature="stats_events")]
@@ -458,7 +445,7 @@ impl World{
     where  S: FnMut(&mut D, ::EntitiesCreation, ::ResourcesThreadLocal) + Send + 'static,
            D: 'static,
     {
-        self.add_creation_system_with_stats((system, data), name)
+        self.add_any_system((system, data), Some(name))
     }
 
 
@@ -470,37 +457,37 @@ impl World{
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system(&mut self, system_path: &str) -> &mut World{
         let system = self.dynamic_systems.new_system(system_path).unwrap();
-        self.add_system(system)
+        self.add_any_system(system, None)
     }
 
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system_with_data<D: Send + 'static>(&mut self, system_path: &str, data: D) -> &mut World{
         let system = self.dynamic_systems.new_system_with_data(system_path).unwrap();
-        self.add_system((system, data))
+        self.add_any_system((system, data), None)
     }
 
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system_thread_local(&mut self, system_path: &str) -> &mut World{
         let system = self.dynamic_systems.new_system_thread_local(system_path).unwrap();
-        self.add_system_thread_local(system)
+        self.add_any_system(system, None)
     }
 
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system_with_data_thread_local<D: 'static>(&mut self, system_path: &str, data: D) -> &mut World{
         let system = self.dynamic_systems.new_system_with_data_thread_local(system_path).unwrap();
-        self.add_system_thread_local((system, data))
+        self.add_any_system((system, data), None)
     }
 
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_creation_system(&mut self, system_path: &str) -> &mut World{
         let system = self.dynamic_systems.new_creation_system(system_path).unwrap();
-        self.add_creation_system(system)
+        self.add_any_system(system, None)
     }
 
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_creation_system_with_data<D: 'static>(&mut self, system_path: &str, data: D) -> &mut World{
         let system = self.dynamic_systems.new_creation_system_with_data(system_path).unwrap();
-        self.add_creation_system((system, data))
+        self.add_any_system((system, data), None)
     }
 
     #[cfg(feature="dynamic_systems")]
@@ -521,14 +508,14 @@ impl World{
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system_with_stats(&mut self, system_path: &str, name: &str) -> &mut World{
         let system = self.dynamic_systems.new_system(system_path).unwrap();
-        self.add_system_with_stats(system, name)
+        self.add_any_system(system, Some(name))
     }
 
     #[cfg(feature="stats_events")]
     #[cfg(feature="dynamic_systems")]
     pub fn new_dynamic_system_with_stats_thread_local(&mut self, system_path: &str, name: &str) -> &mut World{
         let system = self.dynamic_systems.new_system_thread_local(system_path).unwrap();
-        self.add_system_with_stats_thread_local(system, name)
+        self.add_any_system(system, Some(name))
     }
 
     #[cfg(feature="stats_events")]
@@ -553,12 +540,12 @@ impl World{
 
     pub fn run_once(&mut self){
         let systems_thread_local = unsafe{ mem::transmute::<
-                &mut Vec<(String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
-                &mut Vec<(String, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
+                &mut Vec<(Option<String>, Box<for<'a> ::system::SystemThreadLocal<'a>>)>,
+                &mut Vec<(Option<String>, Box<for<'a> ::system::SystemThreadLocal<'a>>)>
             >(&mut self.systems_thread_local) };
         let world_systems = unsafe{ mem::transmute::<
-                &mut Vec<(String, Box<for<'a> ::CreationSystem<'a>>)>,
-                &mut Vec<(String, Box<for<'a> ::CreationSystem<'a>>)>
+                &mut Vec<(Option<String>, Box<for<'a> ::CreationSystem<'a>>)>,
+                &mut Vec<(Option<String>, Box<for<'a> ::CreationSystem<'a>>)>
             >(&mut self.world_systems) };
 
 
@@ -575,7 +562,7 @@ impl World{
             mem::transmute::<&mut World, &mut World>(self)
         };
         let mut priority = self.priority_queue.iter().peekable();
-        let mut send_systems: smallvec::SmallVec<[&(String, SyncSystem); 128]> = smallvec::SmallVec::new();
+        let mut send_systems: smallvec::SmallVec<[&(Option<String>, SyncSystem); 128]> = smallvec::SmallVec::new();
 
         while let Some(next) = priority.next() {
             send_systems.clear();
@@ -592,7 +579,7 @@ impl World{
 
                     #[cfg(feature="stats_events")]
                     stats.par_extend(send_systems.par_iter().filter_map(|&(ref name, s)| {
-                        if name != "" {
+                        if let Some(ref name) = name {
                             let then = time::Instant::now();
                             s.borrow_mut().run(entities, resources);
                             let now = time::Instant::now();
@@ -613,11 +600,11 @@ impl World{
                     let (_name, system_tl) = &mut systems_thread_local[*i];
                     #[cfg(feature="stats_events")]
                     {
-                        if _name != "" {
+                        if let Some(ref name) = _name {
                             let then = time::Instant::now();
                             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
                             let now = time::Instant::now();
-                            stats.push((_name.clone(), now - then));
+                            stats.push((name.clone(), now - then));
                         }else{
                             system_tl.run(self.entities_thread_local(), self.resources_thread_local());
                         }
@@ -631,11 +618,11 @@ impl World{
                     let (_name, system_w) = &mut world_systems[*i];
                     #[cfg(feature="stats_events")]
                     {
-                        if _name != "" {
+                        if let Some(ref name) = _name {
                             let then = time::Instant::now();
                             system_w.run(::EntitiesCreation::new(world), self.resources_thread_local());
                             let now = time::Instant::now();
-                            stats.push((_name.clone(), now - then));
+                            stats.push((name.clone(), now - then));
                         }else{
                             system_w.run(::EntitiesCreation::new(world), self.resources_thread_local());
                         }
@@ -827,7 +814,7 @@ impl World{
 }
 
 
-pub struct SyncSystem(UnsafeCell<Box<for<'a> ::system::System<'a>>>);
+struct SyncSystem(UnsafeCell<Box<for<'a> ::system::System<'a>>>);
 
 impl SyncSystem{
     fn new<S: for<'a> ::system::System<'a> + 'static>(s: S) -> SyncSystem{

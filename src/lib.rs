@@ -37,7 +37,7 @@ pub use forest::Forest;
 pub use vec::VecStorage;
 pub use resource::{Resources, ResourcesThreadLocal};
 pub use world::World;
-pub use system::*;
+pub use system::{System, SystemThreadLocal, CreationSystem};
 pub use oneton_densevec::DenseOneToNVec;
 pub use assoc_vec::AssocVec;
 pub use hashmap::HashMapStorage;
