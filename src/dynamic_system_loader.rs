@@ -55,7 +55,6 @@ impl SystemPath{
 }
 
 struct Data{
-    libraries: HashMap<PathBuf, DynamicLibrary>,
     library_names_index: HashMap<PathBuf, String>, //TODO: this can probably be a vector or use src path as index instead
     systems: DynamicSystemLoader<fn(Entities, Resources)>,
     systems_thread_local: DynamicSystemLoader<fn(EntitiesThreadLocal, ResourcesThreadLocal)>,
@@ -63,6 +62,7 @@ struct Data{
     systems_with_data_thread_local: DynamicSystemLoader<fn(*mut c_void, EntitiesThreadLocal, ResourcesThreadLocal)>,
     creation_systems: DynamicSystemLoader<fn(EntitiesCreation, ResourcesThreadLocal)>,
     creation_systems_with_data: DynamicSystemLoader<fn(*mut c_void, EntitiesCreation, ResourcesThreadLocal)>,
+    libraries: HashMap<PathBuf, DynamicLibrary>,
     source_rx: Receiver<notify::DebouncedEvent>,
     source_watcher: notify::RecommendedWatcher,
     libs_rx: Receiver<notify::DebouncedEvent>,
@@ -72,7 +72,21 @@ struct Data{
 
 pub struct DynamicSystemsLoader{
     data: Arc<Mutex<Data>>,
-    // updater: thread::JoinHandle,
+    updater: Option<thread::JoinHandle<()>>,
+}
+
+impl Drop for DynamicSystemsLoader{
+    fn drop(&mut self){
+        self.data.lock().unwrap().done = true;
+        self.updater.take().unwrap().join().unwrap();
+        let mut data = self.data.lock().unwrap();
+        data.systems.clear();
+        data.systems_thread_local.clear();
+        data.systems_with_data.clear();
+        data.systems_with_data_thread_local.clear();
+        data.creation_systems.clear();
+        data.creation_systems_with_data.clear();
+    }
 }
 
 impl DynamicSystemsLoader{
@@ -84,7 +98,7 @@ impl DynamicSystemsLoader{
         });
         Ok(DynamicSystemsLoader{
             data: loader_data,
-            // updater,
+            updater: Some(updater),
         })
     }
 
@@ -167,13 +181,16 @@ impl DynamicSystemsLoader{
 
     fn update(data: Arc<Mutex<Data>>){
         loop {
-            let mut data = data.lock().unwrap();
-            if data.done {
-                return;
-            }
+            {
+                let mut data = data.lock().unwrap();
+                if data.done {
+                    return;
+                }
 
-            data.update_source();
-            data.update_libs();
+                data.update_source();
+                data.update_libs();
+            }
+            thread::sleep(Duration::from_millis(16));
 
         }
     }
@@ -206,13 +223,13 @@ impl Data{
             .map_err(|e| format!("Error creating watcher: {}", e.description()))?;
 
         Ok(Data{
-            libraries: HashMap::default(),
             systems: DynamicSystemLoader::new(),
             systems_thread_local: DynamicSystemLoader::new(),
             systems_with_data: DynamicSystemLoader::new(),
             systems_with_data_thread_local: DynamicSystemLoader::new(),
             creation_systems: DynamicSystemLoader::new(),
             creation_systems_with_data: DynamicSystemLoader::new(),
+            libraries: HashMap::default(),
             library_names_index: HashMap::default(),
             source_watcher,
             libs_watcher,
@@ -256,6 +273,9 @@ impl Data{
             match self.libraries.entry(lib_path.clone()){
                 Entry::Occupied(lib) => (),
                 Entry::Vacant(vacant) => {
+                    self.library_names_index.entry(lib_path.clone())
+                        .or_insert((*library).to_owned());
+
                     let library = DynamicLibrary(
                         Arc::new(RwLock::new(temporary_library(&lib_path)?))
                     );
@@ -392,6 +412,7 @@ impl Data{
                             (source_path1, source_path2, lib_name)
                         })
                         .find(|&(ref source_path1, ref source_path2, _lib_name)| {
+                            println!("checking {:?} with {:?}", lib_path, source_path1);
                             lib_path.starts_with(source_path1) || lib_path.starts_with(source_path2)
                         })
                         .map(|(_, _, lib_name)|{
@@ -502,6 +523,11 @@ impl<S> DynamicSystemLoader<S> {
                 }
             }
         }
+    }
+
+    fn clear(&mut self){
+        self.systems.clear();
+        self.systems_per_library.clear();
     }
 }
 
