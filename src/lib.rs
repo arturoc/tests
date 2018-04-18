@@ -6,6 +6,7 @@ extern crate boolinator;
 // extern crate fnv;
 extern crate fxhash;
 extern crate smallvec;
+extern crate densevec;
 #[cfg(feature="stats_events")]
 extern crate seitan;
 
@@ -32,7 +33,7 @@ pub use storage::{Read, Write, Not, ReadNot, ReadOr, ReadOption,
 pub use entity::{Entity, Entities, EntitiesThreadLocal, EntityBuilder, EntitiesCreation};
 pub use component::{Component, ComponentSync, ComponentThreadLocal,
     OneToNComponent, HierarchicalOneToNComponent};
-pub use dense_vec::DenseVec;
+pub use densevec::DenseVec;
 pub use forest::Forest;
 pub use vec::VecStorage;
 pub use resource::{Resources, ResourcesThreadLocal};

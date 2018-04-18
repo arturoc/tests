@@ -21,3 +21,4 @@ tempfile = {version = "*", optional = true}
 # fnv = "*"
 fxhash = "*"
 smallvec="*"
+densevec="*"

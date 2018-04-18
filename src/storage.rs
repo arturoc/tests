@@ -252,16 +252,15 @@ impl<'a, T, S: ::StorageRef<'a, T> + 'a> Iterator for IterOption<'a, T,S>
     where S: ::Storage<'a, T> + 'a
 {
     type Item = Option<<S as ::Storage<'a,T>>::Get>;
+    #[inline]
     fn next(&mut self) -> Option<Self::Item>{
         use ::StorageRef;
-        unsafe {
-            if self.next > self.last_guid {
-                None
-            } else {
-                let next = self.next;
-                self.next += 1;
-                Some(self.storage.get(next))
-            }
+        if self.next > self.last_guid {
+            None
+        } else {
+            let next = self.next;
+            self.next += 1;
+            Some(self.storage.get(next))
         }
     }
 }

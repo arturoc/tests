@@ -3,7 +3,7 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 use std::cell::UnsafeCell;
 
 use idtree;
-use dense_vec::DenseVec;
+use densevec::DenseVec;
 use sync::{ReadGuardRef, WriteGuardRef, ReadGuard, WriteGuard};
 use storage::{Storage, IntoIter, IntoIterMut, HierarchicalStorage, IntoOrderedIter, IntoOrderedIterMut};
 
@@ -49,7 +49,7 @@ impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
 
     fn remove(&mut self, guid: usize){
         {
-            let id = unsafe{ self.index.get(guid) };
+            let id = unsafe{ self.index.get_unchecked(guid) };
             self.arena.remove(*id);
             if let Some(pos) = self.roots.iter().position(|i| i == id){
                 self.roots.remove(pos);
@@ -61,12 +61,12 @@ impl<'a, T: 'a> Storage<'a, T> for Forest<T>{
     }
 
     unsafe fn get(&'a self, guid: usize) -> &'a T{
-        let node_id = self.index.get(guid);
+        let node_id = self.index.get_unchecked(guid);
         &self.arena[*node_id]
     }
 
     unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut T{
-        let node_id = self.index.get(guid);
+        let node_id = self.index.get_unchecked(guid);
         &mut self.arena[*node_id]
     }
 
@@ -138,7 +138,7 @@ impl<'a, T> IntoIterMut for RwLockWriteGuard<'a, Forest<T>>{
 
 impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
     unsafe fn insert_child(&mut self, parent_guid: usize, guid: usize, value: T){
-        let parent_id = *self.index.get(parent_guid);
+        let parent_id = *self.index.get_unchecked(parent_guid);
         let node_id = self.arena.get_mut(parent_id).append_new(value);
         self.index.insert(guid, node_id.id());
         self.reverse_index.insert(node_id.id().id(), guid);
@@ -146,12 +146,12 @@ impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
     }
 
     unsafe fn get_node(&self, guid: usize) -> idtree::NodeRef<T>{
-        let node_id = *self.index.get(guid);
-        self.arena.get(node_id)
+        let node_id = self.index.get_unchecked(guid);
+        self.arena.get(*node_id)
     }
 
     unsafe fn get_node_mut(&mut self, guid: usize) -> idtree::NodeRefMut<T>{
-        let node_id = self.index.get(guid);
+        let node_id = self.index.get_unchecked(guid);
         self.arena.get_mut(*node_id)
     }
 
@@ -165,7 +165,7 @@ impl<'a,T: 'a> HierarchicalStorage<'a,T> for Forest<T>{
             };
             unsafe{ (*self.ordered_ids.get()).extend(iter_tree
                 //.map(|id| self.index.iter_ids().find(|&(pos, id2)| *id2 == id).map(|(pos, id)| pos).unwrap())
-                .map(|id| *self.reverse_index.get(id.id()) )
+                .map(|id| self.reverse_index.get_unchecked(id.id()) )
             )};
         }
         unsafe{ &(*self.ordered_ids.get()) }

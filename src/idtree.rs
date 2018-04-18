@@ -175,7 +175,7 @@ impl<T> Arena<T> {
     pub fn remove<N: Into<NodeId>>(&mut self, id: N){
         let id = id.into();
         if self.contains(id){
-            if unsafe{ self.nodes.get(id.index).parent().is_some() }{
+            if unsafe{ self.nodes.get_unchecked(id.index).parent().is_some() }{
                 for c in id.children(self).collect::<Vec<_>>(){
                     id.insert_after(c, self);
                 }
@@ -192,7 +192,7 @@ impl<T> Arena<T> {
     pub fn remove_tree<N: Into<NodeId>>(&mut self, id: N){
         let id = id.into();
         if self.contains(id){
-            if unsafe{ self.nodes.get(id.index).first_child().is_some() }{
+            if unsafe{ self.nodes.get_unchecked(id.index).first_child().is_some() }{
                 for c in id.children(self).collect::<Vec<_>>(){
                     self.remove_tree(c);
                 }
@@ -242,18 +242,18 @@ impl<T> Arena<T> {
 
     pub fn all_nodes(&self) -> AllNodes<T>{
         AllNodes{
-            it: self.nodes.iter()
+            it: self.nodes.values()
         }
     }
 
     pub fn all_nodes_mut(&mut self) -> AllNodesMut<T>{
         AllNodesMut{
-            it: self.nodes.iter_mut()
+            it: self.nodes.values_mut()
         }
     }
 
     pub fn into_vec(self) -> Vec<Node<T>>{
-        self.nodes.into_iter()/*.filter(|n| n.alive)*/.collect()
+        self.nodes.into_iter().map(|(_,v)| v)/*.filter(|n| n.alive)*/.collect()
     }
 
     pub fn len(&self) -> usize{
@@ -710,7 +710,7 @@ impl<T> GetPairMut<T> for DenseVec<T> {
         }
         unsafe {
             let self2 = mem::transmute_copy::<&mut DenseVec<T>, &mut DenseVec<T>>(&self);
-            (self.get_mut(a), self2.get_mut(b))
+            (self.get_mut(a).unwrap(), self2.get_mut(b).unwrap())
         }
     }
 }
@@ -720,14 +720,14 @@ impl<T> Index<NodeId> for Arena<T> {
 
     fn index(&self, node: NodeId) -> &Node<T> {
         // assert!(self.contains(node));
-        unsafe{self.nodes.get(node.index)}
+        &self.nodes[node.index]
     }
 }
 
 impl<T> IndexMut<NodeId> for Arena<T> {
     fn index_mut(&mut self, node: NodeId) -> &mut Node<T> {
         // assert!(self.contains(node));
-        unsafe{self.nodes.get_mut(node.index)}
+        self.nodes.get_mut(node.index).unwrap()
     }
 }
 

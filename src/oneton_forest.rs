@@ -38,7 +38,7 @@ impl<'a, T: 'a> Storage<'a, T> for OneToNForest<T>{
     }
 
     fn remove(&mut self, guid: usize){
-        for id in unsafe{ self.entities_roots.get(guid).iter() }{
+        for id in unsafe{ self.entities_roots.get_unchecked(guid).iter() }{
             self.arena.remove_tree(*id);
         }
         self.entities_roots.remove(guid);
@@ -46,14 +46,14 @@ impl<'a, T: 'a> Storage<'a, T> for OneToNForest<T>{
 
     unsafe fn get(&'a self, guid: usize) -> RootsIter<'a,T>{
         RootsIter{
-            iter: self.entities_roots.get(guid).iter(),
+            iter: self.entities_roots.get_unchecked(guid).iter(),
             arena: &self.arena
         }
     }
 
     unsafe fn get_mut(&'a mut self, guid: usize) -> RootsIterMut<'a,T>{
         RootsIterMut{
-            iter: self.entities_roots.get(guid).iter(),
+            iter: self.entities_roots.get_unchecked(guid).iter(),
             arena: &mut self.arena
         }
     }
@@ -127,7 +127,7 @@ impl<'a, T> IntoIter for ReadGuardRef<'a, OneToNForest<T>>{
     type Iter = Iter<'a, T>;
     fn into_iter(self) -> Iter<'a, T>{
         Iter{
-            iter: unsafe{ mem::transmute::<slice::Iter<Vec<idtree::NodeId>>, slice::Iter<Vec<idtree::NodeId>>>(self.entities_roots.iter()) },
+            iter: unsafe{ mem::transmute::<slice::Iter<Vec<idtree::NodeId>>, slice::Iter<Vec<idtree::NodeId>>>(self.entities_roots.values()) },
             storage: self,
         }
     }
@@ -161,7 +161,7 @@ impl<'a, T> IntoIterMut for WriteGuardRef<'a, OneToNForest<T>>{
     type IterMut = IterMut<'a, T>;
     fn into_iter_mut(self) -> IterMut<'a, T>{
         IterMut{
-            iter: unsafe{ mem::transmute::<slice::Iter<Vec<idtree::NodeId>>, slice::Iter<Vec<idtree::NodeId>>>(self.entities_roots.iter()) },
+            iter: unsafe{ mem::transmute::<slice::Iter<Vec<idtree::NodeId>>, slice::Iter<Vec<idtree::NodeId>>>(self.entities_roots.values()) },
             storage: self,
         }
     }

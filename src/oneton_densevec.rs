@@ -32,12 +32,12 @@ impl<'a,T: 'a> OneToNStorage<'a,T> for DenseOneToNVec<T>{
     }
 
     unsafe fn get_slice(&self, guid: usize) -> &[T]{
-        let slice = &self.index.get(guid);
+        let slice = self.index.get_unchecked(guid);
         &self.vec[slice.first_index..slice.first_index + slice.len]
     }
 
     unsafe fn get_slice_mut(&mut self, guid: usize) -> &mut [T]{
-        let slice = &self.index.get(guid);
+        let slice = self.index.get_unchecked(guid);
         &mut self.vec[slice.first_index..slice.first_index + slice.len]
     }
 }
@@ -73,7 +73,7 @@ impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
     }
 
     fn remove(&mut self, guid: usize){
-        let group = unsafe{ *self.index.get(guid) };
+        let group = unsafe{ *self.index.get_unchecked(guid) };
         self.vec.drain(group.first_index .. group.first_index + group.len).count();
         for i in group.first_index .. group.first_index + group.len{
             if let Some(i) = self.ids.iter().position(|id| *id == i){
@@ -81,7 +81,7 @@ impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
             }
         }
         self.index.remove(guid);
-        for other_group in self.index.iter_mut() {
+        for other_group in self.index.values_mut() {
             if other_group.first_index > group.first_index {
                 other_group.first_index -= group.len;
             }
@@ -89,7 +89,7 @@ impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
     }
 
     unsafe fn get(&'a self, guid: usize) -> &'a [T]{
-        let slice = &self.index.get(guid);
+        let slice = self.index.get_unchecked(guid);
         &self.vec[slice.first_index..slice.first_index + slice.len]
 
         // let ptr = self.vec.as_ptr().offset(slice.first_index as isize);
@@ -97,7 +97,7 @@ impl<'a, T: 'a> Storage<'a, T> for DenseOneToNVec<T>{
     }
 
     unsafe fn get_mut(&'a mut self, guid: usize) -> &'a mut [T]{
-        let slice = &self.index.get(guid);
+        let slice = self.index.get_unchecked(guid);
         &mut self.vec[slice.first_index..slice.first_index + slice.len]
 
         // let ptr = self.vec.as_mut_ptr().offset(slice.first_index as isize);
@@ -128,7 +128,7 @@ impl<'a, T: 'a> Iterator for OneToNDenseIter<'a, T>{
 impl<'a, T> IntoIter for ReadGuardRef<'a, DenseOneToNVec<T>>{
     type Iter = OneToNDenseIter<'a, T>;
     fn into_iter(self) -> OneToNDenseIter<'a, T>{
-        let it = unsafe{ mem::transmute::<slice::Iter<Group>, slice::Iter<Group>>(self.index.iter()) };
+        let it = unsafe{ mem::transmute::<slice::Iter<Group>, slice::Iter<Group>>(self.index.values()) };
         OneToNDenseIter{
             it,
             storage: self,
@@ -166,7 +166,7 @@ impl<'a, T: 'a> Iterator for OneToNDenseIterMut<'a, T>{
 impl<'a, T> IntoIterMut for WriteGuardRef<'a, DenseOneToNVec<T>>{
     type IterMut = OneToNDenseIterMut<'a, T>;
     fn into_iter_mut(mut self) -> OneToNDenseIterMut<'a, T>{
-        let it = unsafe{ mem::transmute::<slice::IterMut<Group>, slice::IterMut<Group>>(self.index.iter_mut()) };
+        let it = unsafe{ mem::transmute::<slice::IterMut<Group>, slice::IterMut<Group>>(self.index.values_mut()) };
         OneToNDenseIterMut{
             it,
             storage: self,
