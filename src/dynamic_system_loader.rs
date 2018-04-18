@@ -612,17 +612,17 @@ impl<'a> DynamicLibraryWriteGuard<'a>{
         }
     }
 
-    fn replace_library(&mut self, new_lib: lib::Library){
-        mem::replace(&mut (self.0).0, new_lib);
-    }
-
     fn set_new_library_tempfile(&mut self, tempfile: tempfile::TempPath){
         mem::replace(&mut (self.0).1, tempfile);
     }
 
-    fn temp_path(&self) -> &tempfile::TempPath{
-        &(self.0).1
-    }
+    // fn replace_library(&mut self, new_lib: lib::Library){
+    //     mem::replace(&mut (self.0).0, new_lib);
+    // }
+
+    // fn temp_path(&self) -> &tempfile::TempPath{
+    //     &(self.0).1
+    // }
 }
 
 impl<'a> Drop for DynamicLibraryWriteGuardUnloaded<'a>{
