@@ -14,7 +14,7 @@ default=["dynamic_systems"]
 rayon = "*"
 boolinator = "*"
 num = { version = "*", optional = true }
-seitan = { path="../seitan-rs", optional = true }
+seitan = { git="ssh://bitbucket.com/arturoc/seitan-rs", optional = true }
 libloading = {version = "*", optional = true }
 notify = {version = "*", optional = true}
 tempfile = {version = "*", optional = true}
